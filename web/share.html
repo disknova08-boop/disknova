@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>DiskWala - Shared Video</title>
+    <meta property="og:title" content="Shared Video - DiskWala" />
+    <meta property="og:type" content="video.other" />
+    <meta property="og:image" content="" id="ogImage" />
+    <meta property="og:url" content="" />
+    <meta name="theme-color" content="#2563eb">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="icon" href="https://diskwala.in/favicon.ico">
+    <style>
+        /* Same beautiful CSS as before */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+          font-family: 'Inter', sans-serif;
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          min-height: 100vh;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 20px;
+        }
+        .card {
+          background: white;
+          border-radius: 24px;
+          overflow: hidden;
+          width: 100%;
+          max-width: 420px;
+          box-shadow: 0 25px 50px rgba(0,0,0,0.25);
+        }
+        .header {
+          background: #2563eb;
+          padding: 20px;
+          text-align: center;
+          color: white;
+        }
+        .logo {
+          font-size: 28px;
+          font-weight: 700;
+        }
+        .logo span { color: #93c5fd; }
+        .content { padding: 32px 24px; text-align: center; }
+        .thumbnail {
+          width: 100%;
+          height: 240px;
+          object-fit: cover;
+          border-radius: 16px;
+          background: #f1f5f9;
+        }
+        .title {
+          font-size: 20px;
+          font-weight: 600;
+          margin: 16px 0 8px;
+          color: #1e293b;
+        }
+        .meta {
+          color: #64748b;
+          font-size: 14px;
+          margin: 8px 0;
+        }
+        .uploader {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          margin: 20px 0;
+          color: #64748b;
+          font-size: 14px;
+        }
+        .avatar {
+          width: 36px; height: 36px; border-radius: 50%;
+          background: #e0e7ff; margin-right: 10px;
+          display: flex; align-items: center; justify-content: center;
+          font-weight: bold; color: #2563eb;
+        }
+        .buttons {
+          display: flex;
+          gap: 12px;
+          margin-top: 24px;
+        }
+        .btn {
+          flex: 1; padding: 16px; border-radius: 12px;
+          font-weight: 600; font-size: 16px;
+          cursor: pointer; transition: 0.3s;
+        }
+        .btn-primary { background: #10b981; color: white; }
+        .btn-secondary { background: #f8fafc; color: #2563eb; border: 2px solid #e2e8f0; }
+        .btn:hover { transform: translateY(-3px); box-shadow: 0 10px 20px rgba(0,0,0,0.1); }
+        .footer {
+          margin-top: 24px;
+          font-size: 12px;
+          color: #94a3b8;
+        }
+        .loading {
+          text-align: center;
+          padding: 40px;
+          color: #64748b;
+        }
+        .spinner {
+          border: 4px solid #f3f4f6;
+          border-top: 4px solid #2563eb;
+          border-radius: 50%;
+          width: 40px;
+          height: 40px;
+          animation: spin 1s linear infinite;
+          margin: 0 auto 16px;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+<div class="card">
+    <div class="header">
+        <div class="logo">d<SUP>isk</SUP><span>Skwala</span></div>
+    </div>
+    <div class="content">
+        <div id="loading" class="loading">
+            <div class="spinner"></div>
+            <p>Loading video details...</p>
+        </div>
+
+        <div id="content" style="display:none;">
+            <img id="thumbnail" class="thumbnail" src="" alt="Video thumbnail" />
+            <div class="title" id="title">Loading...</div>
+            <div class="meta" id="size">...</div>
+            <div class="meta" id="date">...</div>
+            <div class="uploader">
+                <div class="avatar" id="avatar">U</div>
+                <span>File By: <strong id="uploader">linkwala hai</strong></span>
+            </div>
+            <div class="buttons">
+                <div class="btn btn-primary" onclick="downloadApp()">Download App</div>
+                <div class="btn btn-secondary" onclick="viewInApp()">View in App</div>
+            </div>
+            <div class="footer">*You can view the file in Android/iOS App. Web is not supported.*</div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Get video ID from URL: /s/abc123 → abc123
+    const path = window.location.pathname;
+    const videoId = path.split('/s/')[1]?.split('/')[0] || path.split('/').pop();
+
+    // Your Supabase URL and Public Anon Key
+    const SUPABASE_URL = "https://evajqtqydxmtezgeaief.supabase.co";
+    const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV2YWpxdHF5ZHhtdGV6Z2VhaWVmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE5MzI3NDQsImV4cCI6MjA3NzUwODc0NH0.WzRv37Tm7PHH7D1bxE4QnO1lmH2UV2IQ_TqgF1QYUM8";
+
+    async function loadVideo() {
+      try {
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/videos?id=eq.${videoId}&select=*`, {
+          headers: {
+            "apikey": SUPABASE_ANON_KEY,
+            "Authorization": `Bearer ${SUPABASE_ANON_KEY}`
+          }
+        });
+        const data = await res.json();
+        if (data.length === 0) throw "Video not found";
+
+        const video = data[0];
+
+        // Update meta tags
+        document.title = `${video.title || 'Shared Video'} - DiskWala`;
+        document.querySelector('#ogImage').setAttribute('content', video.thumbnail_url
+          ? `${SUPABASE_URL}/storage/v1/object/public/thumbnails/${video.thumbnail_url}`
+          : 'https://diskwala.in/default-thumb.jpg');
+
+        // Fill data
+        document.getElementById('thumbnail').src = video.thumbnail_url
+          ? `${SUPABASE_URL}/storage/v1/object/public/thumbnails/${video.thumbnail_url}`
+          : 'https://via.placeholder.com/400x240/2563eb/ffffff?text=Play+Video';
+
+        document.getElementById('title').textContent = video.title || "Untitled Video";
+        document.getElementById('size').textContent = `${(video.file_size / 1024 / 1024).toFixed(2)} MB`;
+
+        const date = new Date(video.created_at);
+        document.getElementById('date').textContent = date.toLocaleDateString('en-IN', {
+          day: 'numeric', month: 'short', year: 'numeric'
+        });
+
+        document.getElementById('uploader').textContent = video.uploader_name || "linkwala hai";
+        document.getElementById('avatar').textContent = (video.uploader_name || "U")[0].toUpperCase();
+
+        // Show content
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('content').style.display = 'block';
+
+      } catch (err) {
+        document.getElementById('loading').innerHTML = `
+          <p>Video not found or deleted</p>
+          <p><a href="https://play.google.com/store/apps/details?id=com.diskwala.app" style="color:#2563eb">Download App</a></p>
+        `;
+      }
+    }
+
+    function downloadApp() {
+      window.open("https://play.google.com/store/apps/details?id=com.diskwala.app", "_blank");
+    }
+
+    function viewInApp() {
+      // Deep link
+      window.location = `diskwala://share/${videoId}`;
+      setTimeout(() => {
+        window.location = "https://play.google.com/store/apps/details?id=com.diskwala.app";
+      }, 1500);
+    }
+
+    // Load on start
+    loadVideo();
+</script>
+</body>
+</html>

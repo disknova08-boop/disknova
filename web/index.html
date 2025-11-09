@@ -32,7 +32,51 @@
   <title>disknova_project</title>
   <link rel="manifest" href="manifest.json">
 </head>
+
 <body>
-  <script src="flutter_bootstrap.js" async></script>
+<script>
+  // Expose a global function that returns a Promise<Blob>
+  window.generateVideoThumbnail = function (file) {
+    return new Promise((resolve, reject) => {
+      try {
+        const video = document.createElement('video');
+        const url = URL.createObjectURL(file);
+        video.src = url;
+        video.crossOrigin = 'anonymous';
+        video.muted = true;
+        video.playsInline = true;
+
+        // Wait for metadata, then seek to ~10% of the video (or 1 s)
+        video.onloadedmetadata = () => {
+          const seek = Math.min(1, video.duration * 0.1);
+          video.currentTime = seek;
+        };
+
+        video.onseeked = () => {
+          const canvas = document.createElement('canvas');
+          canvas.width  = video.videoWidth;
+          canvas.height = video.videoHeight;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+          canvas.toBlob(blob => {
+            URL.revokeObjectURL(url);   // clean up
+            if (blob) resolve(blob);
+            else reject('toBlob returned null');
+          }, 'image/jpeg', 0.8);
+        };
+
+        video.onerror = (e) => {
+          URL.revokeObjectURL(url);
+          reject('Video error: ' + (e.message || 'unknown'));
+        };
+      } catch (err) {
+        reject('JS error: ' + err);
+      }
+    });
+  };
+</script>
+<script src="flutter_bootstrap.js" async></script>
+
 </body>
 </html>
