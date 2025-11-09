@@ -13,7 +13,7 @@ void main() async {
     anonKey: supabaseKey,
   );
 
-  runApp(const Dev2DeskApp());
+  runApp(const DiskNovaApp());
 }
 // const supabaseUrl = 'https://evajqtqydxmtezgeaief.supabase.co';
 // const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV2YWpxdHF5ZHhtdGV6Z2VhaWVmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE5MzI3NDQsImV4cCI6MjA3NzUwODc0NH0.WzRv37Tm7PHH7D1bxE4QnO1lmH2UV2IQ_TqgF1QYUM8';
@@ -41,4 +41,4 @@ class DiskNovaApp extends StatelessWidget {
   }
 }
 //  vercel --prod --confirm --name disknova1
-//  bot token==AAGkMYPVLp7K5DUs8HLkCvI6IWMD4Zu5NbA
+//  bot token==8029120671:AAGkMYPVLp7K5DUs8HLkCvI6IWMD4Zu5NbA
