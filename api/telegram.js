@@ -1,68 +1,96 @@
-// File: /api/telegram.js
-import { createClient } from '@supabase/supabase-js';
+// api/telegram.js
 import axios from 'axios';
+import { createClient } from '@supabase/supabase-js';
 
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_KEY
-);
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
+const BOT_TOKEN = process.env.BOT_TOKEN;
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
 export default async function handler(req, res) {
-  if (req.method !== 'POST') return res.status(405).end();
+  if (req.method !== 'POST') return res.status(200).end();
 
   const update = req.body;
-  const msg = update.message;
+  const msg = update.message || update.channel_post || update.edited_message;
   if (!msg) return res.status(200).end();
 
-  const tgId = msg.from.id;
+  const chatId = msg.chat?.id;
+  const tgUserId = msg.from?.id;
 
-  // 1️⃣ Publisher check
-  const { data: publisher, error } = await supabase
+  // --- 1) Check publisher mapping
+  const { data: publisher, error: pubErr } = await supabase
     .from('publishers')
     .select('*')
-    .eq('telegram_id', tgId)
+    .eq('telegram_id', tgUserId)
     .single();
 
-  if (error || !publisher || !publisher.telegram_verified) {
-    await axios.post(`https://api.telegram.org/bot${process.env.BOT_TOKEN}/sendMessage`, {
-      chat_id: msg.chat.id,
-      text: "❌ आप verified publisher नहीं हैं। कृपया पहले verify करें।"
+  if (pubErr || !publisher || !publisher.telegram_verified) {
+    await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      chat_id: chatId,
+      text: '❌ आप verified publisher नहीं हैं। पहले verify करें: /link'
     });
     return res.status(200).end();
   }
 
-  // 2️⃣ If user sent document/file
+  // --- 2) If document/file
   if (msg.document) {
-    const fileId = msg.document.file_id;
+    try {
+      // get file path
+      const getFile = await axios.get(`https://api.telegram.org/bot${BOT_TOKEN}/getFile?file_id=${msg.document.file_id}`);
+      const filePath = getFile.data.result.file_path;
+      const fileUrl = `https://api.telegram.org/file/bot${BOT_TOKEN}/${filePath}`;
 
-    // Telegram file URL
-    const fileInfo = await axios.get(`https://api.telegram.org/bot${process.env.BOT_TOKEN}/getFile?file_id=${fileId}`);
-    const filePath = fileInfo.data.result.file_path;
-    const fileUrl = `https://api.telegram.org/file/bot${process.env.BOT_TOKEN}/${filePath}`;
+      // download file
+      const fileResp = await axios.get(fileUrl, { responseType: 'arraybuffer' });
+      const buffer = Buffer.from(fileResp.data);
 
-    // Download file as buffer
-    const fileResp = await axios.get(fileUrl, { responseType: 'arraybuffer' });
-    const buffer = Buffer.from(fileResp.data);
+      // validate size/type here as needed (msg.document.mime_type, file size)
+      const fileName = msg.document.file_name || `upload_${Date.now()}`;
 
-    // 3️⃣ Upload to Supabase Storage
-    const fileName = msg.document.file_name;
-    const uploadPath = `publishers/${publisher.id}/${fileName}`;
-    const { error: uploadError } = await supabase.storage
-      .from('publisher-files')
-      .upload(uploadPath, buffer, {
-        contentType: msg.document.mime_type,
-        upsert: false,
+      // upload to Supabase Storage (server-side)
+      const bucket = 'publisher-files'; // create this bucket in Supabase
+      const uploadPath = `publishers/${publisher.id}/${fileName}`;
+
+      const { error: upErr } = await supabase.storage
+        .from(bucket)
+        .upload(uploadPath, buffer, { contentType: msg.document.mime_type });
+
+      if (upErr) throw upErr;
+
+      await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+        chat_id: chatId,
+        text: `✅ Uploaded: ${fileName}`
       });
-
-    const reply = uploadError
-      ? `❌ Upload failed: ${uploadError.message}`
-      : `✅ Uploaded successfully: ${fileName}`;
-
-    await axios.post(`https://api.telegram.org/bot${process.env.BOT_TOKEN}/sendMessage`, {
-      chat_id: msg.chat.id,
-      text: reply,
-    });
+      return res.status(200).end();
+    } catch (e) {
+      console.error(e);
+      await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, { chat_id: chatId, text: '❌ Upload failed.' });
+      return res.status(200).end();
+    }
   }
 
-  res.status(200).end();
+  // --- 3) If user sends /link (start verification flow)
+  if (msg.text && msg.text.trim().toLowerCase().startsWith('/link')) {
+    // generate token and store in telegram_verifications
+    const token = [...Array(30)].map(() => (Math.random() * 36 | 0).toString(36)).join('');
+    const expiresAt = new Date(Date.now() + 1000 * 60 * 15).toISOString(); // 15 min
+
+    await supabase.from('telegram_verifications').insert({
+      telegram_id: tgUserId,
+      token,
+      expires_at: expiresAt
+    });
+
+    // send verification URL to user (point to your web app verify page)
+    const verifyUrl = `https://disknova-2cna.vercel.app/verify-telegram?token=${token}`;
+    await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      chat_id: chatId,
+      text: `🔗 Click to verify your account: ${verifyUrl}\n(Valid for 15 minutes)`
+    });
+    return res.status(200).end();
+  }
+
+  // default reply
+  return res.status(200).end();
 }
