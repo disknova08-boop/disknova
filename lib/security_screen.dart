@@ -1,3 +1,4 @@
+import 'package:disknova_project/main.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -123,7 +124,7 @@ class _SecuritySettingsPageState extends State<SecuritySettingsPage> {
     try {
       await supabase.auth.updateUser(
         UserAttributes(password: _newPasswordController.text),
-        emailRedirectTo: 'https://disknova-lv7x6dvuy-disknovas-projects.vercel.app/confirm'
+        emailRedirectTo: '$APP_URL/confirm'
       );
 
       if (mounted) {
