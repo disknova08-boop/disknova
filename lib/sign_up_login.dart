@@ -413,6 +413,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 
 import 'dashboard.dart';
+import 'main.dart';
 
 class CategoryChips extends StatefulWidget {
   const CategoryChips({Key? key}) : super(key: key);
@@ -2560,7 +2561,7 @@ class _AuthScreenState extends State<AuthScreen>
     try {
       await Supabase.instance.client.auth.resetPasswordForEmail(
         _forgotPasswordEmailController.text.trim(),
-        redirectTo: 'https://disknova1-lqwb4qulf-disknovas-projects.vercel.app/reset-password',
+        redirectTo: '$APP_URL/reset-password',
       );
 
       _showSnack('Password reset email sent! Check your inbox.', success: true);
@@ -2682,7 +2683,7 @@ class _AuthScreenState extends State<AuthScreen>
 
         // Not registered -> proceed to sign up
         try {
-          final response = await supabase.auth.signUp(email: email, password: password,emailRedirectTo: 'https://disknova-lv7x6dvuy-disknovas-projects.vercel.app/confirm');
+          final response = await supabase.auth.signUp(email: email, password: password,emailRedirectTo: '$APP_URL/confirm');
 
           if (response.user != null) {
             userService.setUser(response.user!);
