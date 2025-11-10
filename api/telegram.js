@@ -5,7 +5,7 @@ import { createClient } from '@supabase/supabase-js';
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 const BOT_TOKEN = process.env.BOT_TOKEN;
-const WEBAPP_URL = process.env.WEBAPP_URL || 'https://disknova-2cna.vercel.app';
+const WEBAPP_URL = process.env.WEBAPP_URL || 'https://disknova-2cna-6s1ooz0i1-disknovas-projects.vercel.app';
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
@@ -119,7 +119,7 @@ export default async function handler(req, res) {
 
       // Generate verification token
       const token = [...Array(30)].map(() => (Math.random() * 36 | 0).toString(36)).join('');
-      const expiresAt = new Date(Date.now() + 1000 * 60 * 15).toIso8601String(); // 15 min
+      const expiresAt = new Date(Date.now() + 1000 * 60 * 15).toISOString(); // Fixed: toISOString()
 
       // Delete old tokens for this user
       await supabase
@@ -229,7 +229,7 @@ export default async function handler(req, res) {
             file_size: fileObj.file_size || 0,
             duration: fileObj.duration || 0,
             views: 0,
-            created_at: new Date().toIso8601String()
+            created_at: new Date().toISOString() // Fixed: toISOString()
           })
           .select()
           .single();
