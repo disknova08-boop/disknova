@@ -20,6 +20,16 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') {
     return res.status(200).json({ ok: true });
   }
+if (req.method === 'GET') {
+  const { token, user_id } = req.query;
+
+  if (!token || !user_id) {
+    return res.status(400).json({ success: false, error: 'Missing token or user_id' });
+  }
+
+  // You can re-use same logic as POST here if you want to verify directly
+  return res.status(200).json({ success: true, message: 'Verification link clicked', token, user_id });
+}
 
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
