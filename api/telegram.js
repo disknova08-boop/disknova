@@ -143,7 +143,7 @@ export default async function handler(req, res) {
         return res.status(200).json({ ok: true });
       }
 
-      const verifyUrl = `${WEBAPP_URL}/verify-telegram?token=${token}`;
+      const verifyUrl = `${WEBAPP_URL}/api/verify-telegram?token=${token}`;
 
       await sendMessage(chatId,
         `🔗 <b>Verification Link Created!</b>\n\n` +
