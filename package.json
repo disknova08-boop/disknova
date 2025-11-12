@@ -1,9 +1,9 @@
 {
-  "name": "disknova1",
+  "name": "disknova-telegram-bot",
   "version": "1.0.0",
-  "main": "api/telegram.js",
   "type": "module",
   "dependencies": {
-    "axios": "^1.7.7"
+    "@supabase/supabase-js": "^2.43.0",
+    "axios": "^1.6.8"
   }
 }
