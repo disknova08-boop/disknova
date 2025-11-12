@@ -14,6 +14,7 @@ export default async function handler(req, res) {
     if (!token || !telegram_id) return sendHtml(res, false, 'Missing verification data.');
 
     try {
+      // ✅ Check verification record
       const { data: verification } = await supabase
         .from('telegram_verifications')
         .select('*')
@@ -27,27 +28,16 @@ export default async function handler(req, res) {
       if (new Date(verification.expires_at) < new Date())
         return sendHtml(res, false, 'Verification link expired.');
 
-      // Update publisher table
-      const { data: existing } = await supabase
+      // ✅ Update publisher directly using user_id from verification
+      await supabase
         .from('publishers')
-        .select('id, telegram_id')
-        .eq('telegram_id', telegram_id)
-        .maybeSingle();
+        .update({
+          telegram_verified: true,
+          telegram_id: telegram_id
+        })
+        .eq('id', verification.user_id);
 
-      // If telegram_id not set yet, update first user (or latest)
-      if (!existing) {
-        await supabase
-          .from('publishers')
-          .update({ telegram_id, telegram_verified: true })
-          .order('created_at', { ascending: false })
-          .limit(1);
-      } else {
-        await supabase
-          .from('publishers')
-          .update({ telegram_verified: true })
-          .eq('telegram_id', telegram_id);
-      }
-
+      // ✅ Mark verification token as used
       await supabase
         .from('telegram_verifications')
         .update({ used: true })
@@ -63,10 +53,10 @@ export default async function handler(req, res) {
   return res.status(405).json({ error: 'Method not allowed' });
 }
 
-function sendHtml(res, success, message) {
+function sendHtml(res, success, message, telegram_id) {
   const color = success ? '#16a34a' : '#dc2626';
   const emoji = success ? '✅' : '❌';
-  const redirectLink = 'https://t.me/Hkgaming07';
+  const redirectLink = telegram_id ? `https://t.me/${telegram_id}` : 'https://t.me/Hkgaming07';
   const html = `
   <html>
     <head>
