@@ -168,7 +168,10 @@ async function sendMessage(chatId, text, options = {}) {
 function extractUsername(text) {
   if (!text) return null;
 
-  text = text.trim().toLowerCase();
+  // Trim and convert to lowercase
+  text = text.trim();
+
+  console.log('🔍 Extracting username from:', text);
 
   const patterns = [
     /(?:https?:\/\/)?(?:www\.)?t\.me\/([a-zA-Z0-9_]+)/i,
@@ -180,10 +183,13 @@ function extractUsername(text) {
   for (const pattern of patterns) {
     const match = text.match(pattern);
     if (match && match[1]) {
-      return match[1].toLowerCase();
+      const username = match[1].toLowerCase();
+      console.log('✅ Extracted username:', username);
+      return username;
     }
   }
 
+  console.log('❌ No username extracted');
   return null;
 }
 
@@ -302,24 +308,37 @@ export default async function handler(req, res) {
       }
 
       // 🔥 FIXED: Search by matching username in telegram_url, not telegram_id
-      const { data: allPublishers } = await supabase
+      const { data: allPublishers, error: fetchError } = await supabase
         .from('publishers')
         .select('*')
         .not('telegram_url', 'is', null);
+
+      console.log('📊 All Publishers:', allPublishers);
+      console.log('🔍 Sent Username:', sentUsername);
 
       let matchedPublisher = null;
 
       if (allPublishers && allPublishers.length > 0) {
         matchedPublisher = allPublishers.find(pub => {
           const storedUsername = extractUsername(pub.telegram_url);
+          console.log(`Comparing: stored="${storedUsername}" with sent="${sentUsername}"`);
           return storedUsername === sentUsername;
         });
       }
 
+      console.log('✅ Matched Publisher:', matchedPublisher);
+
       if (!matchedPublisher) {
+        // Show debug info to user
+        const debugInfo = allPublishers?.map(p => {
+          const u = extractUsername(p.telegram_url);
+          return `• ${p.telegram_url} → @${u}`;
+        }).join('\n') || 'No publishers with Telegram links found';
+
         await sendMessage(chatId,
           `❌ <b>No Matching Account Found</b>\n\n` +
           `Username sent: <code>@${sentUsername}</code>\n\n` +
+          `<b>Debug Info:</b>\n<code>${debugInfo}</code>\n\n` +
           `This username is not registered in DiskNova app.\n\n` +
           `<b>Please:</b>\n` +
           `1. Open DiskNova app\n` +
