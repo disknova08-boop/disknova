@@ -168,11 +168,8 @@ async function sendMessage(chatId, text, options = {}) {
 function extractUsername(text) {
   if (!text) return null;
 
-  // Remove whitespace
-  text = text.trim();
+  text = text.trim().toLowerCase();
 
-  // Match patterns like:
-  // https://t.me/username, t.me/username, @username, username
   const patterns = [
     /(?:https?:\/\/)?(?:www\.)?t\.me\/([a-zA-Z0-9_]+)/i,
     /(?:https?:\/\/)?(?:www\.)?telegram\.me\/([a-zA-Z0-9_]+)/i,
@@ -304,22 +301,7 @@ export default async function handler(req, res) {
         return res.status(200).json({ ok: true });
       }
 
-      // Check if already verified
-      const { data: existingPublisher } = await supabase
-        .from('publishers')
-        .select('*')
-        .eq('telegram_id', tgUserId)
-        .maybeSingle();
-
-      if (existingPublisher?.telegram_verified) {
-        await sendMessage(chatId,
-          `✅ You're already verified, ${existingPublisher.first_name}!\n\n` +
-          `You can upload videos by sending them as files.`
-        );
-        return res.status(200).json({ ok: true });
-      }
-
-      // Search for publisher with matching telegram_url
+      // 🔥 FIXED: Search by matching username in telegram_url, not telegram_id
       const { data: allPublishers } = await supabase
         .from('publishers')
         .select('*')
@@ -329,10 +311,7 @@ export default async function handler(req, res) {
 
       if (allPublishers && allPublishers.length > 0) {
         matchedPublisher = allPublishers.find(pub => {
-          const storedUrl = pub.telegram_url?.toLowerCase() || '';
-          const storedUsername = extractUsername(storedUrl);
-
-          // Match the username from stored URL with sent username
+          const storedUsername = extractUsername(pub.telegram_url);
           return storedUsername === sentUsername;
         });
       }
@@ -348,6 +327,15 @@ export default async function handler(req, res) {
           `3. Add this link: <code>https://t.me/${sentUsername}</code>\n` +
           `4. Save and come back\n` +
           `5. Send the link again here`
+        );
+        return res.status(200).json({ ok: true });
+      }
+
+      // 🔥 FIXED: Check if already verified for THIS publisher
+      if (matchedPublisher.telegram_verified && matchedPublisher.telegram_id === tgUserId) {
+        await sendMessage(chatId,
+          `✅ You're already verified, ${matchedPublisher.first_name}!\n\n` +
+          `You can upload videos by sending them as files.`
         );
         return res.status(200).json({ ok: true });
       }
