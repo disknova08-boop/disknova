@@ -7,15 +7,23 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  if (req.method === 'OPTIONS') return res.status(200).json({ ok: true });
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
 
   if (req.method === 'GET') {
     const { token, telegram_id } = req.query;
-    if (!token || !telegram_id) return sendHtml(res, false, 'Missing verification data.');
+
+    if (!token || !telegram_id) {
+      return sendHtml(res, false, 'Missing verification data. Please try again from the bot.');
+    }
 
     try {
       // ✅ Check verification record
-      const { data: verification } = await supabase
+      const { data: verification, error: verifyError } = await supabase
         .from('telegram_verifications')
         .select('*')
         .eq('token', token)
@@ -23,19 +31,55 @@ export default async function handler(req, res) {
         .eq('used', false)
         .single();
 
-      if (!verification) return sendHtml(res, false, 'Invalid or expired verification link.');
+      if (verifyError || !verification) {
+        console.error('Verification not found:', verifyError);
+        return sendHtml(res, false, 'Invalid or expired verification link. Please request a new one from the bot using /link command.');
+      }
 
-      if (new Date(verification.expires_at) < new Date())
-        return sendHtml(res, false, 'Verification link expired.');
+      // ✅ Check if expired
+      if (new Date(verification.expires_at) < new Date()) {
+        return sendHtml(res, false, 'Verification link expired (15 minutes). Please use /link command in the bot to get a new link.');
+      }
 
-      // ✅ Update publisher directly using user_id from verification
-      await supabase
+      // ✅ Get publisher by telegram_url matching
+      const { data: publisher, error: pubError } = await supabase
+        .from('publishers')
+        .select('*')
+        .eq('id', verification.publisher_id)
+        .single();
+
+      if (pubError || !publisher) {
+        console.error('Publisher not found:', pubError);
+        return sendHtml(res, false, 'Publisher account not found. Please ensure you have added your Telegram link in the DiskNova app.');
+      }
+
+      // ✅ Validate Telegram URL before verification
+      const telegramUrl = publisher.telegram_url;
+      if (!telegramUrl || telegramUrl.trim() === '') {
+        return sendHtml(res, false, 'Telegram URL not found in your profile. Please add it in the DiskNova app Social Links section first.');
+      }
+
+      // Check if URL is valid Telegram link
+      const telegramRegex = /^(https?:\/\/)?(www\.)?(t\.me|telegram\.me)\/.+$/i;
+      if (!telegramRegex.test(telegramUrl)) {
+        return sendHtml(res, false, `Invalid Telegram URL format: ${telegramUrl}. Please update it in the app.`);
+      }
+
+      // ✅ Update publisher with telegram_id and verify both telegram and telegram_url
+      const { error: updateError } = await supabase
         .from('publishers')
         .update({
+          telegram_id: telegram_id,
           telegram_verified: true,
-          telegram_id: telegram_id
+          telegram_url_verified: true, // ✅ Also verify the URL field
+          updated_at: new Date().toISOString()
         })
-        .eq('id', verification.user_id);
+        .eq('id', publisher.id);
+
+      if (updateError) {
+        console.error('Error updating publisher:', updateError);
+        return sendHtml(res, false, 'Failed to verify account. Please try again.');
+      }
 
       // ✅ Mark verification token as used
       await supabase
@@ -43,10 +87,16 @@ export default async function handler(req, res) {
         .update({ used: true })
         .eq('token', token);
 
-      return sendHtml(res, true, 'Your Telegram account has been verified successfully.');
+      return sendHtml(
+        res,
+        true,
+        `Your Telegram account has been verified successfully! You can now upload videos directly from Telegram. Return to the bot to start uploading.`,
+        telegram_id
+      );
+
     } catch (err) {
-      console.error('Error verifying:', err);
-      return sendHtml(res, false, 'Verification failed.');
+      console.error('Verification error:', err);
+      return sendHtml(res, false, 'An error occurred during verification. Please try again.');
     }
   }
 
@@ -56,35 +106,137 @@ export default async function handler(req, res) {
 function sendHtml(res, success, message, telegram_id) {
   const color = success ? '#16a34a' : '#dc2626';
   const emoji = success ? '✅' : '❌';
-  const redirectLink = telegram_id ? `https://t.me/${telegram_id}` : 'https://t.me/Hkgaming07';
+  const bgColor = success ? '#f0fdf4' : '#fef2f2';
+  const botUsername = 'Hkgaming07'; // Replace with your bot username
+
   const html = `
-  <html>
-    <head>
-      <meta charset="UTF-8" />
-      <title>${emoji} ${success ? 'Verified' : 'Failed'}</title>
-      <style>
-        body {
-          background:#f9fafb; font-family:sans-serif; height:100vh; display:flex;
-          align-items:center; justify-content:center; text-align:center;
-        }
+  <!DOCTYPE html>
+  <html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>${emoji} ${success ? 'Verified' : 'Failed'}</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+      }
+
+      .card {
+        background: white;
+        padding: 40px;
+        border-radius: 20px;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        max-width: 500px;
+        width: 100%;
+        text-align: center;
+      }
+
+      .icon {
+        width: 80px;
+        height: 80px;
+        background: ${bgColor};
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin: 0 auto 24px;
+        font-size: 40px;
+      }
+
+      h1 {
+        color: ${color};
+        font-size: 28px;
+        margin-bottom: 16px;
+        font-weight: 700;
+      }
+
+      p {
+        color: #64748b;
+        font-size: 16px;
+        line-height: 1.6;
+        margin-bottom: 30px;
+      }
+
+      .btn {
+        display: inline-block;
+        background: ${color};
+        color: white;
+        padding: 14px 28px;
+        border-radius: 12px;
+        text-decoration: none;
+        font-weight: 600;
+        font-size: 16px;
+        transition: all 0.3s;
+      }
+
+      .btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+      }
+
+      .note {
+        margin-top: 24px;
+        padding: 16px;
+        background: #f8fafc;
+        border-radius: 10px;
+        font-size: 14px;
+        color: #475569;
+      }
+
+      @media (max-width: 640px) {
         .card {
-          background:white; padding:30px 40px; border-radius:12px;
-          box-shadow:0 4px 10px rgba(0,0,0,0.1);
+          padding: 30px 20px;
         }
-        h1 { color:${color}; }
-        a { display:inline-block; background:${color}; color:white;
-            padding:10px 16px; border-radius:6px; margin-top:10px;
-            text-decoration:none; font-weight:bold; }
-      </style>
-    </head>
-    <body>
-      <div class="card">
-        <h1>${emoji} ${success ? 'Verification Successful' : 'Verification Failed'}</h1>
-        <p>${message}</p>
-        <a href="${redirectLink}">Return to Telegram</a>
-      </div>
-    </body>
+
+        h1 {
+          font-size: 24px;
+        }
+
+        p {
+          font-size: 15px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="icon">${emoji}</div>
+      <h1>${success ? 'Verification Successful!' : 'Verification Failed'}</h1>
+      <p>${message}</p>
+      <a href="https://t.me/${botUsername}" class="btn">
+        ${success ? '🚀 Go to Bot' : '🔄 Try Again'}
+      </a>
+      ${success ? `
+        <div class="note">
+          <strong>Next Steps:</strong><br>
+          1. Return to the Telegram bot<br>
+          2. Send any video file to upload<br>
+          3. Get a shareable link instantly!
+        </div>
+      ` : `
+        <div class="note">
+          <strong>Troubleshooting:</strong><br>
+          1. Add your Telegram link in DiskNova app<br>
+          2. Use /link command in the bot<br>
+          3. Click the verification link within 15 minutes
+        </div>
+      `}
+    </div>
+  </body>
   </html>`;
+
   res.setHeader('Content-Type', 'text/html');
   res.status(success ? 200 : 400).send(html);
 }
