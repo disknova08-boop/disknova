@@ -3,10 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:intl/intl.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:video_thumbnail/video_thumbnail.dart';
 
 class FileManagerScreen extends StatefulWidget {
   const FileManagerScreen({Key? key}) : super(key: key);
@@ -19,37 +17,15 @@ class _FileManagerScreenState extends State<FileManagerScreen> {
   List<Map<String, dynamic>> _videos = [];
   bool _isLoading = true;
 
+  // ✅ Base URL for your deployed app
+  static const String baseUrl = 'https://disknova-2cna.vercel.app';
+
   @override
   void initState() {
     super.initState();
     _loadVideos();
   }
-  Future<String?> _generateThumbnail(String videoUrl) async {
-    try {
-      final tempDir = await getTemporaryDirectory();
-      final thumbnailPath = await VideoThumbnail.thumbnailFile(
-        video: videoUrl,
-        thumbnailPath: tempDir.path,
-        imageFormat: ImageFormat.JPEG,
-        maxHeight: 250, // You can adjust thumbnail size
-        quality: 80,
-      );
-      return thumbnailPath;
-    } catch (e) {
-      debugPrint('Thumbnail error: $e');
-      return null;
-    }
-  }
-  void _copyVideoLink(String videoUrl) async {
-    // Tumhara public share page URL
 
-    await Clipboard.setData(ClipboardData(text: videoUrl));
-
-    _showSuccess('Link copied to clipboard!');
-
-    // Optional: Share both copy + share
-    // Share.share(shareableUrl, subject: 'Check out this video!');
-  }
   Future<void> _loadVideos() async {
     try {
       final userId = Supabase.instance.client.auth.currentUser?.id;
@@ -67,6 +43,31 @@ class _FileManagerScreenState extends State<FileManagerScreen> {
     } catch (e) {
       setState(() => _isLoading = false);
       _showError('Error loading videos: ${e.toString()}');
+    }
+  }
+
+  // ✅ Generate shareable URL using video ID
+  String _getShareableUrl(String videoId) {
+    return '$baseUrl/video/$videoId';
+  }
+
+  // ✅ Copy shareable link to clipboard
+  void _copyVideoLink(String videoId) async {
+    final shareUrl = _getShareableUrl(videoId);
+    await Clipboard.setData(ClipboardData(text: shareUrl));
+    _showSuccess('Link copied to clipboard!\n$shareUrl');
+  }
+
+  // ✅ Share video using native share sheet
+  void _shareVideo(String videoId, String title) async {
+    final shareUrl = _getShareableUrl(videoId);
+    try {
+      await Share.share(
+        shareUrl,
+        subject: title ?? 'Check out this video on DiskNova!',
+      );
+    } catch (e) {
+      _showError('Error sharing: ${e.toString()}');
     }
   }
 
@@ -95,25 +96,16 @@ class _FileManagerScreenState extends State<FileManagerScreen> {
     try {
       // Delete from storage
       final filePath = videoUrl.split('/videos/').last;
-      await Supabase.instance.client.storage
-          .from('videos')
-          .remove([filePath]);
+      await Supabase.instance.client.storage.from('videos').remove([filePath]);
 
       // Delete from database
-      await Supabase.instance.client
-          .from('videos')
-          .delete()
-          .eq('id', id);
+      await Supabase.instance.client.from('videos').delete().eq('id', id);
 
       _showSuccess('Video deleted successfully');
       _loadVideos();
     } catch (e) {
       _showError('Error deleting video: ${e.toString()}');
     }
-  }
-
-  void _shareVideo(String url) {
-    Share.share(url, subject: 'Check out this video!');
   }
 
   void _showError(String message) {
@@ -205,7 +197,8 @@ class _FileManagerScreenState extends State<FileManagerScreen> {
       itemCount: _videos.length,
       itemBuilder: (context, index) {
         final video = _videos[index];
-        return _buildVideoCard(video).animate(delay: (index * 50).ms)
+        return _buildVideoCard(video)
+            .animate(delay: (index * 50).ms)
             .fadeIn(duration: 300.ms)
             .slideX(begin: -0.2, end: 0);
       },
@@ -243,8 +236,8 @@ class _FileManagerScreenState extends State<FileManagerScreen> {
       String formattedDate,
       String fileSizeMB,
       ) {
-    final userId = Supabase.instance.client.auth.currentUser?.id;
-    final thumbnailUrl = video['thumbnail_url'] != null && video['thumbnail_url'].isNotEmpty
+    final thumbnailUrl = video['thumbnail_url'] != null &&
+        video['thumbnail_url'].isNotEmpty
         ? Supabase.instance.client.storage
         .from('thumbnails')
         .getPublicUrl(video['thumbnail_url'])
@@ -300,17 +293,22 @@ class _FileManagerScreenState extends State<FileManagerScreen> {
               const SizedBox(height: 12),
               Row(
                 children: [
-                  _buildInfoChip(Icons.visibility_outlined, '${video['views'] ?? 0}'),
+                  _buildInfoChip(
+                      Icons.visibility_outlined, '${video['views'] ?? 0}'),
                   const SizedBox(width: 8),
                   _buildInfoChip(Icons.storage_outlined, '$fileSizeMB MB'),
                 ],
               ),
               const SizedBox(height: 12),
+              // ✅ Updated buttons with proper share functionality
               Row(
                 children: [
                   Expanded(
                     child: OutlinedButton.icon(
-                      onPressed: () => _shareVideo(video['video_url']),
+                      onPressed: () => _shareVideo(
+                        video['id'].toString(),
+                        video['title'] ?? 'Video',
+                      ),
                       icon: const Icon(Icons.share, size: 18),
                       label: const Text('Share'),
                       style: OutlinedButton.styleFrom(
@@ -320,20 +318,32 @@ class _FileManagerScreenState extends State<FileManagerScreen> {
                   ),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: () => _deleteVideo(
-                        video['id'].toString(),
-                        video['video_url'],
-                      ),
-                      icon: const Icon(Icons.delete, size: 18),
-                      label: const Text('Delete'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.red,
-                        foregroundColor: Colors.white,
+                    child: OutlinedButton.icon(
+                      onPressed: () => _copyVideoLink(video['id'].toString()),
+                      icon: const Icon(Icons.copy, size: 18),
+                      label: const Text('Copy Link'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.green,
                       ),
                     ),
                   ),
                 ],
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () => _deleteVideo(
+                    video['id'].toString(),
+                    video['video_url'],
+                  ),
+                  icon: const Icon(Icons.delete, size: 18),
+                  label: const Text('Delete'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.red,
+                    foregroundColor: Colors.white,
+                  ),
+                ),
               ),
             ],
           ),
@@ -342,14 +352,13 @@ class _FileManagerScreenState extends State<FileManagerScreen> {
     );
   }
 
-
   Widget _buildDesktopCard(
       Map<String, dynamic> video,
       String formattedDate,
       String fileSizeMB,
       ) {
-    final userId = Supabase.instance.client.auth.currentUser?.id;
-    final thumbnailUrl = video['thumbnail_url'] != null && video['thumbnail_url'].isNotEmpty
+    final thumbnailUrl = video['thumbnail_url'] != null &&
+        video['thumbnail_url'].isNotEmpty
         ? Supabase.instance.client.storage
         .from('thumbnails')
         .getPublicUrl(video['thumbnail_url'])
@@ -408,27 +417,33 @@ class _FileManagerScreenState extends State<FileManagerScreen> {
                 const SizedBox(height: 12),
                 Row(
                   children: [
-                    _buildInfoChip(Icons.visibility_outlined, '${video['views'] ?? 0} views'),
+                    _buildInfoChip(Icons.visibility_outlined,
+                        '${video['views'] ?? 0} views'),
                     const SizedBox(width: 12),
                     _buildInfoChip(Icons.storage_outlined, '$fileSizeMB MB'),
                     const SizedBox(width: 12),
-                    _buildInfoChip(Icons.calendar_today_outlined, formattedDate),
+                    _buildInfoChip(
+                        Icons.calendar_today_outlined, formattedDate),
                   ],
                 ),
               ],
             ),
           ),
           const SizedBox(width: 20),
+          // ✅ Updated action buttons
           Column(
             children: [
               IconButton(
-                onPressed: () => _shareVideo(video['video_url']),
+                onPressed: () => _shareVideo(
+                  video['id'].toString(),
+                  video['title'] ?? 'Video',
+                ),
                 icon: const Icon(Icons.share),
                 color: const Color(0xFF2563EB),
                 tooltip: 'Share',
               ),
               IconButton(
-                onPressed: () => _copyVideoLink(video['video_url']),
+                onPressed: () => _copyVideoLink(video['id'].toString()),
                 icon: const Icon(Icons.copy_all),
                 color: Colors.green,
                 tooltip: 'Copy Link',
@@ -448,7 +463,6 @@ class _FileManagerScreenState extends State<FileManagerScreen> {
       ),
     );
   }
-
 
   Widget _buildInfoChip(IconData icon, String label) {
     return Container(

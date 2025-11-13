@@ -1185,7 +1185,17 @@ class _SocialLinksVerificationScreenState
       _showSnackBar('Verification failed: $e', isError: true);
     }
   }
+  bool _isValidTelegramUrl(String url) {
+    if (url.isEmpty) return false;
 
+    // Regex for Telegram URL validation
+    final telegramRegex = RegExp(
+      r'^(https?://)?(www\.)?(t\.me|telegram\.me)/.+$',
+      caseSensitive: false,
+    );
+
+    return telegramRegex.hasMatch(url);
+  }
   Future<void> _verifyDirectLink(String platform) async {
     // FIXED: Check prerequisites
     if (!_emailVerified || !_billingVerified) {
@@ -1194,6 +1204,101 @@ class _SocialLinksVerificationScreenState
     }
 
     try {
+      if (platform == 'telegram_url') {
+        final telegramUrl = _socialLinks[platform]?.toString() ?? '';
+
+        if (!_isValidTelegramUrl(telegramUrl)) {
+          _showSnackBar(
+            'Invalid Telegram URL format!\n\n'
+                'Valid formats:\n'
+                '• https://t.me/username\n'
+                '• https://telegram.me/username\n'
+                '• t.me/username',
+            isError: true,
+          );
+          return;
+        }
+
+        // Show dialog explaining Telegram verification
+        final confirm = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Row(
+              children: [
+                Icon(Icons.telegram, color: Colors.blue),
+                SizedBox(width: 8),
+                Text('Telegram Verification'),
+              ],
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Your Telegram URL: $telegramUrl',
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'To complete verification:\n\n'
+                      '1. Open your Telegram app\n'
+                      '2. Search for @YourBotName\n'
+                      '3. Send /link command\n'
+                      '4. Click the verification link\n\n'
+                      'For now, we\'ll mark this as pending verification.',
+                  style: TextStyle(fontSize: 14),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(context, true),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blue,
+                ),
+                child: const Text('Continue to Bot'),
+              ),
+            ],
+          ),
+        );
+
+        if (confirm != true) return;
+
+        // Save telegram_url but don't verify yet
+        await _supabase
+            .from('publishers')
+            .update({
+          'telegram_url': telegramUrl,
+          'telegram_url_verified': false, // Not verified yet
+        })
+            .eq('id', _publisherId!);
+
+        _showSnackBar(
+          '✅ Telegram URL saved!\n\n'
+              'Now open Telegram and use /link command in the bot to complete verification.',
+          isError: false,
+        );
+
+        // Reload data
+        await _loadData();
+        return;
+      }
+
+      // For other platforms, mark as verified directly
+      await _supabase
+          .from('publishers')
+          .update({'${platform}_verified': true})
+          .eq('id', _publisherId!);
+
+      setState(() {
+        _verificationStatus[platform] = true;
+      });
+
+      _showSnackBar('✅ ${_getPlatformName(platform)} verified successfully!');
       await _supabase
           .from('publishers')
           .update({'${platform}_verified': true}).eq('id', _publisherId!);
@@ -1213,7 +1318,291 @@ class _SocialLinksVerificationScreenState
         .firstWhere((p) => p['key'] == key, orElse: () => {})['name'] ??
         key;
   }
+  Widget _buildVerificationCard(String platform, bool isTablet) {
+    final isVerified = _verificationStatus[platform] ?? false;
+    final isWhatsApp = platform == 'whatsapp_number';
+    final isTelegram = platform == 'telegram_url';
 
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isVerified ? Colors.green : Colors.grey[300]!,
+          width: 2,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: _getPlatformColor(platform).withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  _getPlatformIcon(platform),
+                  color: _getPlatformColor(platform),
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _getPlatformName(platform),
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black87,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      _socialLinks[platform].toString(),
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Colors.grey[600],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (isVerified)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.green.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.check_circle, color: Colors.green, size: 16),
+                      SizedBox(width: 4),
+                      Text(
+                        'Verified',
+                        style: TextStyle(
+                          color: Colors.green,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+          if (!isVerified) ...[
+            const SizedBox(height: 16),
+            const Divider(),
+            const SizedBox(height: 16),
+
+            // ✅ Different UI for Telegram
+            if (isTelegram) ...[
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.blue.shade200),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.info_outline, color: Colors.blue.shade700, size: 20),
+                        const SizedBox(width: 8),
+                        const Text(
+                          'Telegram Verification Required',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'To verify your Telegram account:\n'
+                          '1. Open Telegram app\n'
+                          '2. Search for our bot\n'
+                          '3. Send /link command\n'
+                          '4. Click verification link',
+                      style: TextStyle(fontSize: 13, height: 1.4),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () => _verifyDirectLink(platform),
+                  icon: const Icon(Icons.telegram, size: 20),
+                  label: const Text('Save & Go to Bot'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue.shade700,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                ),
+              ),
+            ] else if (isWhatsApp) ...[
+              // WhatsApp OTP verification (existing code)
+              if (_verificationCodes[platform] == null) ...[
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: _isSendingVerification
+                        ? null
+                        : () => _sendVerificationCode(platform),
+                    icon: _isSendingVerification
+                        ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                        : const Icon(Icons.send, size: 20),
+                    label: Text(_isSendingVerification
+                        ? 'Sending OTP...'
+                        : 'Send OTP'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: _getPlatformColor(platform),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                  ),
+                ),
+              ] else ...[
+                TextField(
+                  controller: _codeControllers[platform],
+                  decoration: InputDecoration(
+                    labelText: 'Enter OTP',
+                    hintText: 'Enter 6-digit OTP',
+                    prefixIcon: const Icon(Icons.lock),
+                    filled: true,
+                    fillColor: Colors.grey[50],
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: BorderSide(color: Colors.grey[300]!),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: BorderSide(color: Colors.grey[300]!),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: BorderSide(
+                        color: _getPlatformColor(platform),
+                        width: 2,
+                      ),
+                    ),
+                  ),
+                  keyboardType: TextInputType.number,
+                  maxLength: 6,
+                  buildCounter: (context,
+                      {required currentLength,
+                        required isFocused,
+                        maxLength}) =>
+                  null,
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: () => _verifyCode(platform),
+                        icon: const Icon(Icons.check, size: 20),
+                        label: const Text('Verify OTP'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: _getPlatformColor(platform),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _isSendingVerification
+                            ? null
+                            : () => _sendVerificationCode(platform),
+                        icon: _isSendingVerification
+                            ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                            : const Icon(Icons.refresh, size: 20),
+                        label: const Text('Resend'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: _getPlatformColor(platform),
+                          side: BorderSide(color: _getPlatformColor(platform)),
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ] else ...[
+              // Other platforms - direct verification
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () => _verifyDirectLink(platform),
+                  icon: const Icon(Icons.check, size: 20),
+                  label: const Text('Mark as Verified'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _getPlatformColor(platform),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ],
+      ),
+    );
+  }
   IconData _getPlatformIcon(String key) {
     return _availablePlatforms
         .firstWhere((p) => p['key'] == key, orElse: () => {})['icon'] ??
@@ -1743,233 +2132,233 @@ class _SocialLinksVerificationScreenState
     );
   }
 
-  Widget _buildVerificationCard(String platform, bool isTablet) {
-    final isVerified = _verificationStatus[platform] ?? false;
-    final isWhatsApp = platform == 'whatsapp_number';
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: isVerified ? Colors.green : Colors.grey[300]!,
-          width: 2,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: _getPlatformColor(platform).withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(
-                  _getPlatformIcon(platform),
-                  color: _getPlatformColor(platform),
-                  size: 24,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      _getPlatformName(platform),
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.black87,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      _socialLinks[platform].toString(),
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: Colors.grey[600],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              if (isVerified)
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.green.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.check_circle, color: Colors.green, size: 16),
-                      SizedBox(width: 4),
-                      Text(
-                        'Verified',
-                        style: TextStyle(
-                          color: Colors.green,
-                          fontWeight: FontWeight.w600,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-            ],
-          ),
-          if (!isVerified) ...[
-            const SizedBox(height: 16),
-            const Divider(),
-            const SizedBox(height: 16),
-            if (isWhatsApp) ...[
-              if (_verificationCodes[platform] == null) ...[
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: _isSendingVerification
-                        ? null
-                        : () => _sendVerificationCode(platform),
-                    icon: _isSendingVerification
-                        ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    )
-                        : const Icon(Icons.send, size: 20),
-                    label: Text(_isSendingVerification
-                        ? 'Sending OTP...'
-                        : 'Send OTP'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: _getPlatformColor(platform),
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
-                  ),
-                ),
-              ] else ...[
-                TextField(
-                  controller: _codeControllers[platform],
-                  decoration: InputDecoration(
-                    labelText: 'Enter OTP',
-                    hintText: 'Enter 6-digit OTP',
-                    prefixIcon: const Icon(Icons.lock),
-                    filled: true,
-                    fillColor: Colors.grey[50],
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: BorderSide(color: Colors.grey[300]!),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: BorderSide(color: Colors.grey[300]!),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: BorderSide(
-                        color: _getPlatformColor(platform),
-                        width: 2,
-                      ),
-                    ),
-                  ),
-                  keyboardType: TextInputType.number,
-                  maxLength: 6,
-                  buildCounter: (context,
-                      {required currentLength,
-                        required isFocused,
-                        maxLength}) =>
-                  null,
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        onPressed: () => _verifyCode(platform),
-                        icon: const Icon(Icons.check, size: 20),
-                        label: const Text('Verify OTP'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: _getPlatformColor(platform),
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: _isSendingVerification
-                            ? null
-                            : () => _sendVerificationCode(platform),
-                        icon: _isSendingVerification
-                            ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                            : const Icon(Icons.refresh, size: 20),
-                        label: const Text('Resend'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: _getPlatformColor(platform),
-                          side: BorderSide(color: _getPlatformColor(platform)),
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ] else ...[
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: () => _verifyDirectLink(platform),
-                  icon: const Icon(Icons.check, size: 20),
-                  label: const Text('Mark as Verified'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _getPlatformColor(platform),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ],
-        ],
-      ),
-    );
-  }
+  // Widget _buildVerificationCard(String platform, bool isTablet) {
+  //   final isVerified = _verificationStatus[platform] ?? false;
+  //   final isWhatsApp = platform == 'whatsapp_number';
+  //
+  //   return Container(
+  //     margin: const EdgeInsets.only(bottom: 16),
+  //     padding: const EdgeInsets.all(20),
+  //     decoration: BoxDecoration(
+  //       color: Colors.white,
+  //       borderRadius: BorderRadius.circular(16),
+  //       border: Border.all(
+  //         color: isVerified ? Colors.green : Colors.grey[300]!,
+  //         width: 2,
+  //       ),
+  //       boxShadow: [
+  //         BoxShadow(
+  //           color: Colors.black.withOpacity(0.05),
+  //           blurRadius: 10,
+  //           offset: const Offset(0, 2),
+  //         ),
+  //       ],
+  //     ),
+  //     child: Column(
+  //       crossAxisAlignment: CrossAxisAlignment.start,
+  //       children: [
+  //         Row(
+  //           children: [
+  //             Container(
+  //               padding: const EdgeInsets.all(10),
+  //               decoration: BoxDecoration(
+  //                 color: _getPlatformColor(platform).withOpacity(0.1),
+  //                 borderRadius: BorderRadius.circular(10),
+  //               ),
+  //               child: Icon(
+  //                 _getPlatformIcon(platform),
+  //                 color: _getPlatformColor(platform),
+  //                 size: 24,
+  //               ),
+  //             ),
+  //             const SizedBox(width: 12),
+  //             Expanded(
+  //               child: Column(
+  //                 crossAxisAlignment: CrossAxisAlignment.start,
+  //                 children: [
+  //                   Text(
+  //                     _getPlatformName(platform),
+  //                     style: const TextStyle(
+  //                       fontSize: 16,
+  //                       fontWeight: FontWeight.w600,
+  //                       color: Colors.black87,
+  //                     ),
+  //                   ),
+  //                   const SizedBox(height: 2),
+  //                   Text(
+  //                     _socialLinks[platform].toString(),
+  //                     style: TextStyle(
+  //                       fontSize: 13,
+  //                       color: Colors.grey[600],
+  //                     ),
+  //                   ),
+  //                 ],
+  //               ),
+  //             ),
+  //             if (isVerified)
+  //               Container(
+  //                 padding: const EdgeInsets.symmetric(
+  //                   horizontal: 12,
+  //                   vertical: 6,
+  //                 ),
+  //                 decoration: BoxDecoration(
+  //                   color: Colors.green.withOpacity(0.1),
+  //                   borderRadius: BorderRadius.circular(20),
+  //                 ),
+  //                 child: const Row(
+  //                   mainAxisSize: MainAxisSize.min,
+  //                   children: [
+  //                     Icon(Icons.check_circle, color: Colors.green, size: 16),
+  //                     SizedBox(width: 4),
+  //                     Text(
+  //                       'Verified',
+  //                       style: TextStyle(
+  //                         color: Colors.green,
+  //                         fontWeight: FontWeight.w600,
+  //                         fontSize: 12,
+  //                       ),
+  //                     ),
+  //                   ],
+  //                 ),
+  //               ),
+  //           ],
+  //         ),
+  //         if (!isVerified) ...[
+  //           const SizedBox(height: 16),
+  //           const Divider(),
+  //           const SizedBox(height: 16),
+  //           if (isWhatsApp) ...[
+  //             if (_verificationCodes[platform] == null) ...[
+  //               SizedBox(
+  //                 width: double.infinity,
+  //                 child: ElevatedButton.icon(
+  //                   onPressed: _isSendingVerification
+  //                       ? null
+  //                       : () => _sendVerificationCode(platform),
+  //                   icon: _isSendingVerification
+  //                       ? const SizedBox(
+  //                     width: 16,
+  //                     height: 16,
+  //                     child: CircularProgressIndicator(
+  //                       strokeWidth: 2,
+  //                       color: Colors.white,
+  //                     ),
+  //                   )
+  //                       : const Icon(Icons.send, size: 20),
+  //                   label: Text(_isSendingVerification
+  //                       ? 'Sending OTP...'
+  //                       : 'Send OTP'),
+  //                   style: ElevatedButton.styleFrom(
+  //                     backgroundColor: _getPlatformColor(platform),
+  //                     foregroundColor: Colors.white,
+  //                     padding: const EdgeInsets.symmetric(vertical: 14),
+  //                     shape: RoundedRectangleBorder(
+  //                       borderRadius: BorderRadius.circular(10),
+  //                     ),
+  //                   ),
+  //                 ),
+  //               ),
+  //             ] else ...[
+  //               TextField(
+  //                 controller: _codeControllers[platform],
+  //                 decoration: InputDecoration(
+  //                   labelText: 'Enter OTP',
+  //                   hintText: 'Enter 6-digit OTP',
+  //                   prefixIcon: const Icon(Icons.lock),
+  //                   filled: true,
+  //                   fillColor: Colors.grey[50],
+  //                   border: OutlineInputBorder(
+  //                     borderRadius: BorderRadius.circular(10),
+  //                     borderSide: BorderSide(color: Colors.grey[300]!),
+  //                   ),
+  //                   enabledBorder: OutlineInputBorder(
+  //                     borderRadius: BorderRadius.circular(10),
+  //                     borderSide: BorderSide(color: Colors.grey[300]!),
+  //                   ),
+  //                   focusedBorder: OutlineInputBorder(
+  //                     borderRadius: BorderRadius.circular(10),
+  //                     borderSide: BorderSide(
+  //                       color: _getPlatformColor(platform),
+  //                       width: 2,
+  //                     ),
+  //                   ),
+  //                 ),
+  //                 keyboardType: TextInputType.number,
+  //                 maxLength: 6,
+  //                 buildCounter: (context,
+  //                     {required currentLength,
+  //                       required isFocused,
+  //                       maxLength}) =>
+  //                 null,
+  //               ),
+  //               const SizedBox(height: 12),
+  //               Row(
+  //                 children: [
+  //                   Expanded(
+  //                     child: ElevatedButton.icon(
+  //                       onPressed: () => _verifyCode(platform),
+  //                       icon: const Icon(Icons.check, size: 20),
+  //                       label: const Text('Verify OTP'),
+  //                       style: ElevatedButton.styleFrom(
+  //                         backgroundColor: _getPlatformColor(platform),
+  //                         foregroundColor: Colors.white,
+  //                         padding: const EdgeInsets.symmetric(vertical: 14),
+  //                         shape: RoundedRectangleBorder(
+  //                           borderRadius: BorderRadius.circular(10),
+  //                         ),
+  //                       ),
+  //                     ),
+  //                   ),
+  //                   const SizedBox(width: 12),
+  //                   Expanded(
+  //                     child: OutlinedButton.icon(
+  //                       onPressed: _isSendingVerification
+  //                           ? null
+  //                           : () => _sendVerificationCode(platform),
+  //                       icon: _isSendingVerification
+  //                           ? const SizedBox(
+  //                         width: 16,
+  //                         height: 16,
+  //                         child: CircularProgressIndicator(strokeWidth: 2),
+  //                       )
+  //                           : const Icon(Icons.refresh, size: 20),
+  //                       label: const Text('Resend'),
+  //                       style: OutlinedButton.styleFrom(
+  //                         foregroundColor: _getPlatformColor(platform),
+  //                         side: BorderSide(color: _getPlatformColor(platform)),
+  //                         padding: const EdgeInsets.symmetric(vertical: 14),
+  //                         shape: RoundedRectangleBorder(
+  //                           borderRadius: BorderRadius.circular(10),
+  //                         ),
+  //                       ),
+  //                     ),
+  //                   ),
+  //                 ],
+  //               ),
+  //             ],
+  //           ] else ...[
+  //             SizedBox(
+  //               width: double.infinity,
+  //               child: ElevatedButton.icon(
+  //                 onPressed: () => _verifyDirectLink(platform),
+  //                 icon: const Icon(Icons.check, size: 20),
+  //                 label: const Text('Mark as Verified'),
+  //                 style: ElevatedButton.styleFrom(
+  //                   backgroundColor: _getPlatformColor(platform),
+  //                   foregroundColor: Colors.white,
+  //                   padding: const EdgeInsets.symmetric(vertical: 14),
+  //                   shape: RoundedRectangleBorder(
+  //                     borderRadius: BorderRadius.circular(10),
+  //                   ),
+  //                 ),
+  //               ),
+  //             ),
+  //           ],
+  //         ],
+  //       ],
+  //     ),
+  //   );
+  // }
   Widget _buildBillingAddressSection() {
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
