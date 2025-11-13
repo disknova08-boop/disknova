@@ -73,7 +73,7 @@ export default async function handler(req, res) {
         .from('publishers')
         .select('telegram_verified, first_name, brand_name, telegram_url, telegram_id')
         .eq('telegram_id', tgUserId)
-        .single();
+        .maybeSingle();
 
       if (publisher?.telegram_verified) {
         await sendMessage(chatId,
@@ -97,9 +97,9 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true });
     }
 
-    // ✅ /link command (verification flow) - FIXED VERSION
+    // ✅ /link command - COMPLETELY FIXED VERSION
     if (msg.text?.trim().toLowerCase() === '/link') {
-      // Check if user already has telegram_id set (previously linked)
+      // Step 1: Check if already verified with this telegram_id
       const { data: existingPublisher } = await supabase
         .from('publishers')
         .select('*')
@@ -114,53 +114,78 @@ export default async function handler(req, res) {
         return res.status(200).json({ ok: true });
       }
 
-      // Build possible Telegram URL variations
-      const possibleUrls = [
-        `https://t.me/${username}`,
-        `https://telegram.me/${username}`,
-        `t.me/${username}`,
-        `telegram.me/${username}`,
-        `@${username}`
-      ];
+      // Step 2: Get username from Telegram
+      const userTelegramUsername = msg.from?.username;
 
-      // Search for publisher with matching telegram_url OR already has this telegram_id
-      const { data: publishers } = await supabase
-        .from('publishers')
-        .select('*')
-        .not('telegram_url', 'is', null);
-
-      // Find matching publisher
-      const matchedPublisher = publishers?.find(pub => {
-        const url = pub.telegram_url?.toLowerCase().trim();
-        if (!url) return false;
-
-        // Check if any possible URL format matches
-        return possibleUrls.some(possibleUrl =>
-          url.includes(possibleUrl.toLowerCase()) ||
-          url.includes(username.toLowerCase())
-        );
-      }) || existingPublisher;
-
-      if (!matchedPublisher) {
-        // Get username-specific URL for clearer instructions
-        const yourTelegramUrl = msg.from?.username
-          ? `https://t.me/${msg.from.username}`
-          : 'your Telegram profile URL';
-
+      if (!userTelegramUsername) {
         await sendMessage(chatId,
-          `❌ <b>Telegram Link Not Found</b>\n\n` +
-          `Please add your Telegram link in the DiskNova app first:\n\n` +
-          `1. Open DiskNova app\n` +
-          `2. Go to Profile → Social Links\n` +
-          `3. Add Telegram URL: <code>${yourTelegramUrl}</code>\n` +
-          `4. Save changes\n` +
-          `5. Come back and use /link again\n\n` +
-          `<i>Make sure the URL matches your Telegram username!</i>`
+          `❌ <b>No Username Found</b>\n\n` +
+          `You need to set a Telegram username first:\n` +
+          `1. Go to Telegram Settings\n` +
+          `2. Set a username (e.g., @Hkgaming07)\n` +
+          `3. Add that link in DiskNova app\n` +
+          `4. Come back and use /link`
         );
         return res.status(200).json({ ok: true });
       }
 
-      // Generate verification token
+      // Step 3: Search for publisher with matching telegram_url
+      // Build search pattern - match both with and without https://
+      const searchPatterns = [
+        `%t.me/${userTelegramUsername}%`,
+        `%telegram.me/${userTelegramUsername}%`,
+        `%@${userTelegramUsername}%`,
+        `%${userTelegramUsername}%`
+      ];
+
+      let matchedPublisher = null;
+
+      // Try each pattern
+      for (const pattern of searchPatterns) {
+        const { data: publishers } = await supabase
+          .from('publishers')
+          .select('*')
+          .ilike('telegram_url', pattern)
+          .limit(1);
+
+        if (publishers && publishers.length > 0) {
+          matchedPublisher = publishers[0];
+          break;
+        }
+      }
+
+      // If still not found, try getting all publishers and manually match
+      if (!matchedPublisher) {
+        const { data: allPublishers } = await supabase
+          .from('publishers')
+          .select('*')
+          .not('telegram_url', 'is', null);
+
+        if (allPublishers && allPublishers.length > 0) {
+          matchedPublisher = allPublishers.find(pub => {
+            const url = pub.telegram_url?.toLowerCase() || '';
+            return url.includes(userTelegramUsername.toLowerCase());
+          });
+        }
+      }
+
+      if (!matchedPublisher) {
+        await sendMessage(chatId,
+          `❌ <b>Telegram Link Not Found</b>\n\n` +
+          `<b>Your Telegram username:</b> @${userTelegramUsername}\n\n` +
+          `Please add this link in DiskNova app:\n` +
+          `<code>https://t.me/${userTelegramUsername}</code>\n\n` +
+          `<b>Steps:</b>\n` +
+          `1. Open DiskNova app\n` +
+          `2. Go to Verification → Social Links\n` +
+          `3. Paste the link above in Telegram field\n` +
+          `4. Save changes\n` +
+          `5. Come back and use /link again`
+        );
+        return res.status(200).json({ ok: true });
+      }
+
+      // Step 4: Generate verification token
       const token = [...Array(30)].map(() => (Math.random() * 36 | 0).toString(36)).join('');
       const expiresAt = new Date(Date.now() + 1000 * 60 * 15).toISOString();
 
@@ -170,7 +195,7 @@ export default async function handler(req, res) {
         .delete()
         .eq('telegram_id', tgUserId);
 
-      // Insert new token
+      // Insert new token with publisher_id
       const { error: insertError } = await supabase
         .from('telegram_verifications')
         .insert({
@@ -191,8 +216,11 @@ export default async function handler(req, res) {
 
       await sendMessage(chatId,
         `🔗 <b>Verification Link Created!</b>\n\n` +
-        `Account: ${matchedPublisher.first_name} (${matchedPublisher.brand_name})\n\n` +
-        `Click the button below to verify your account:\n\n` +
+        `<b>Account Found:</b>\n` +
+        `Name: ${matchedPublisher.first_name}\n` +
+        `Brand: ${matchedPublisher.brand_name}\n` +
+        `Link: ${matchedPublisher.telegram_url}\n\n` +
+        `Click the button below to verify:\n\n` +
         `⏱ Link expires in 15 minutes.`,
         {
           reply_markup: {
@@ -207,13 +235,12 @@ export default async function handler(req, res) {
 
     // ✅ Handle video/document uploads
     if (msg.video || msg.document) {
-      // Check if user is verified
       const { data: publisher } = await supabase
         .from('publishers')
         .select('*')
         .eq('telegram_id', tgUserId)
         .eq('telegram_verified', true)
-        .single();
+        .maybeSingle();
 
       if (!publisher) {
         await sendMessage(chatId,
@@ -230,23 +257,19 @@ export default async function handler(req, res) {
         const fileObj = msg.video || msg.document;
         const fileId = fileObj.file_id;
 
-        // Get file info
         const getFileResp = await axios.get(
           `https://api.telegram.org/bot${BOT_TOKEN}/getFile?file_id=${fileId}`
         );
         const filePath = getFileResp.data.result.file_path;
         const fileUrl = `https://api.telegram.org/file/bot${BOT_TOKEN}/${filePath}`;
 
-        // Download file
         const fileResp = await axios.get(fileUrl, { responseType: 'arraybuffer' });
         const buffer = Buffer.from(fileResp.data);
 
-        // Generate unique filename
         const timestamp = Date.now();
         const originalName = fileObj.file_name || `video_${timestamp}.mp4`;
         const fileName = `telegram/${publisher.user_id}_${timestamp}_${originalName}`;
 
-        // Upload to Supabase Storage
         const { error: uploadErr } = await supabase.storage
           .from('videos')
           .upload(fileName, buffer, {
@@ -256,12 +279,10 @@ export default async function handler(req, res) {
 
         if (uploadErr) throw uploadErr;
 
-        // Get public URL
         const { data: { publicUrl } } = supabase.storage
           .from('videos')
           .getPublicUrl(fileName);
 
-        // Insert into videos table
         const { data: videoRecord, error: dbErr } = await supabase
           .from('videos')
           .insert({
@@ -285,8 +306,7 @@ export default async function handler(req, res) {
           `✅ <b>Video Uploaded Successfully!</b>\n\n` +
           `📁 File: ${originalName}\n` +
           `📊 Size: ${(fileObj.file_size / 1024 / 1024).toFixed(2)} MB\n\n` +
-          `🔗 Share Link:\n${shareUrl}\n\n` +
-          `View and manage your videos in the DiskNova dashboard.`,
+          `🔗 Share Link:\n${shareUrl}`,
           {
             reply_markup: {
               inline_keyboard: [[
@@ -301,8 +321,7 @@ export default async function handler(req, res) {
         console.error('Upload error:', uploadError);
         await sendMessage(chatId,
           `❌ <b>Upload Failed</b>\n\n` +
-          `Error: ${uploadError.message}\n\n` +
-          `Please try again or contact support.`
+          `Error: ${uploadError.message}`
         );
       }
 
