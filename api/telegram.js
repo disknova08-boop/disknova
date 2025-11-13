@@ -1,145 +1,3 @@
-//// api/telegram.js
-//import axios from 'axios';
-//import { createClient } from '@supabase/supabase-js';
-//import fs from 'fs';
-//import https from 'https';
-//
-//const SUPABASE_URL = process.env.SUPABASE_URL;
-//const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
-//const BOT_TOKEN = process.env.BOT_TOKEN;
-//const WEBAPP_URL = process.env.WEBAPP_URL || 'https://disknova-2cna.vercel.app';
-//const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
-//
-//async function sendMessage(chatId, text, options = {}) {
-//  try {
-//    await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
-//      chat_id: chatId,
-//      text,
-//      parse_mode: 'HTML',
-//      ...options
-//    });
-//  } catch (e) {
-//    console.error('Error sending message:', e.response?.data || e.message);
-//  }
-//}
-//
-//// Download Telegram File
-//async function downloadTelegramFile(fileId) {
-//  const fileRes = await axios.get(
-//    `https://api.telegram.org/bot${BOT_TOKEN}/getFile?file_id=${fileId}`
-//  );
-//  const filePath = fileRes.data.result.file_path;
-//  const fileUrl = `https://api.telegram.org/file/bot${BOT_TOKEN}/${filePath}`;
-//
-//  const tempPath = `/tmp/${Date.now()}_${filePath.split('/').pop()}`;
-//  const file = fs.createWriteStream(tempPath);
-//
-//  return new Promise((resolve, reject) => {
-//    https.get(fileUrl, (response) => {
-//      response.pipe(file);
-//      file.on('finish', () => file.close(() => resolve(tempPath)));
-//    }).on('error', reject);
-//  });
-//}
-//
-//export default async function handler(req, res) {
-//  if (req.method === 'GET') return res.status(200).json({ status: 'Bot active' });
-//  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
-//
-//  const update = req.body;
-//  const msg = update.message || update.channel_post || update.edited_message;
-//  if (!msg) return res.status(200).json({ ok: true });
-//
-//  const chatId = msg.chat?.id;
-//  const tgUserId = msg.from?.id;
-//
-//  try {
-//    // ✅ Step 1: Commands
-//    if (msg.text?.trim().toLowerCase() === '/start') {
-//      await sendMessage(chatId, '👋 Welcome to DiskNova Bot!\nUse /link to verify your account.');
-//      return res.status(200).json({ ok: true });
-//    }
-//
-//    if (msg.text?.trim().toLowerCase() === '/help') {
-//      await sendMessage(chatId, 'Commands:\n/link - verify\n/status - check verification');
-//      return res.status(200).json({ ok: true });
-//    }
-//
-//    if (msg.text?.trim().toLowerCase() === '/status') {
-//      const { data: publisher } = await supabase
-//        .from('publishers')
-//        .select('telegram_verified, brand_name')
-//        .eq('telegram_id', tgUserId)
-//        .single();
-//
-//      if (publisher?.telegram_verified)
-//        await sendMessage(chatId, `✅ Verified for brand: ${publisher.brand_name}`);
-//      else await sendMessage(chatId, '❌ Not verified.\nUse /link to verify.');
-//      return res.status(200).json({ ok: true });
-//    }
-//
-//    if (msg.text?.trim().toLowerCase() === '/link') {
-//      const token = Math.random().toString(36).substring(2, 15);
-//      const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
-//
-//      await supabase.from('telegram_verifications').delete().eq('telegram_id', tgUserId);
-//      await supabase.from('telegram_verifications').insert({
-//        telegram_id: tgUserId,
-//        token,
-//        expires_at: expiresAt,
-//        used: false
-//      });
-//
-//      const verifyUrl = `${WEBAPP_URL}/api/verify-telegram?token=${token}&telegram_id=${tgUserId}`;
-//      await sendMessage(chatId, '🔗 Click below to verify your DiskNova account', {
-//        reply_markup: { inline_keyboard: [[{ text: 'Verify ✅', url: verifyUrl }]] }
-//      });
-//      return res.status(200).json({ ok: true });
-//    }
-//
-//    // ✅ Step 2: Handle video uploads
-//    if (msg.video || msg.document || msg.video_note) {
-//      const { data: publisher } = await supabase
-//        .from('publishers')
-//        .select('id, telegram_verified, brand_name')
-//        .eq('telegram_id', tgUserId)
-//        .single();
-//
-//      if (!publisher?.telegram_verified) {
-//        await sendMessage(chatId, '⚠️ Please verify first using /link');
-//        return res.status(200).json({ ok: true });
-//      }
-//
-//      const video = msg.video || msg.document || msg.video_note;
-//      const filePath = await downloadTelegramFile(video.file_id);
-//
-//      const fileData = fs.readFileSync(filePath);
-//      const fileName = `${publisher.brand_name}_${Date.now()}.mp4`;
-//
-//      const { data, error } = await supabase.storage
-//        .from('videos')
-//        .upload(`telegram/${fileName}`, fileData, {
-//          contentType: 'video/mp4',
-//          upsert: false,
-//        });
-//
-//      fs.unlinkSync(filePath);
-//
-//      if (error) {
-//        console.error('Upload error:', error);
-//        await sendMessage(chatId, '❌ Upload failed.');
-//      } else {
-//        const publicUrl = `${SUPABASE_URL.replace('.co', '.co/storage/v1/object/public/videos/telegram/')}${fileName}`;
-//        await sendMessage(chatId, `✅ Video uploaded successfully!\n\n🔗 ${publicUrl}`);
-//      }
-//    }
-//
-//    res.status(200).json({ ok: true });
-//  } catch (error) {
-//    console.error('Error in handler:', error);
-//    res.status(200).json({ ok: true });
-//  }
-//}
 // api/telegram.js
 import axios from 'axios';
 import { createClient } from '@supabase/supabase-js';
@@ -162,12 +20,6 @@ async function sendMessage(chatId, text, options = {}) {
   } catch (e) {
     console.error('Error sending message:', e.response?.data || e.message);
   }
-}
-
-// Validate Telegram URL
-function isValidTelegramUrl(url) {
-  const telegramRegex = /^(https?:\/\/)?(www\.)?(t\.me|telegram\.me)\/.+$/i;
-  return telegramRegex.test(url);
 }
 
 export default async function handler(req, res) {
@@ -219,7 +71,7 @@ export default async function handler(req, res) {
     if (msg.text?.trim().toLowerCase() === '/status') {
       const { data: publisher } = await supabase
         .from('publishers')
-        .select('telegram_verified, first_name, brand_name, telegram_url')
+        .select('telegram_verified, first_name, brand_name, telegram_url, telegram_id')
         .eq('telegram_id', tgUserId)
         .single();
 
@@ -232,9 +84,9 @@ export default async function handler(req, res) {
         );
       } else if (publisher && !publisher.telegram_verified) {
         await sendMessage(chatId,
-          `⚠️ <b>Telegram Link Added but Not Verified</b>\n\n` +
+          `⚠️ <b>Account Linked but Not Verified</b>\n\n` +
           `Your Telegram link: ${publisher.telegram_url || 'Not set'}\n\n` +
-          `Use /link command to verify your account.`
+          `Use /link command to complete verification.`
         );
       } else {
         await sendMessage(chatId,
@@ -245,39 +97,65 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true });
     }
 
-    // ✅ /link command (verification flow)
+    // ✅ /link command (verification flow) - FIXED VERSION
     if (msg.text?.trim().toLowerCase() === '/link') {
-      // Check if user has added Telegram URL in app
-      const { data: publisher } = await supabase
+      // Check if user already has telegram_id set (previously linked)
+      const { data: existingPublisher } = await supabase
         .from('publishers')
         .select('*')
         .eq('telegram_id', tgUserId)
-        .single();
+        .maybeSingle();
 
-      // If already verified
-      if (publisher?.telegram_verified) {
+      if (existingPublisher?.telegram_verified) {
         await sendMessage(chatId,
-          `✅ You're already verified, ${publisher.first_name}!\n\n` +
+          `✅ You're already verified, ${existingPublisher.first_name}!\n\n` +
           `You can upload videos by sending them as files.`
         );
         return res.status(200).json({ ok: true });
       }
 
-      // Check if user has Telegram URL in their profile
-      const { data: publisherWithUrl } = await supabase
+      // Build possible Telegram URL variations
+      const possibleUrls = [
+        `https://t.me/${username}`,
+        `https://telegram.me/${username}`,
+        `t.me/${username}`,
+        `telegram.me/${username}`,
+        `@${username}`
+      ];
+
+      // Search for publisher with matching telegram_url OR already has this telegram_id
+      const { data: publishers } = await supabase
         .from('publishers')
         .select('*')
-        .not('telegram_url', 'is', null)
-        .ilike('telegram_url', `%${username}%`)
-        .maybeSingle();
+        .not('telegram_url', 'is', null);
 
-      if (!publisherWithUrl) {
+      // Find matching publisher
+      const matchedPublisher = publishers?.find(pub => {
+        const url = pub.telegram_url?.toLowerCase().trim();
+        if (!url) return false;
+
+        // Check if any possible URL format matches
+        return possibleUrls.some(possibleUrl =>
+          url.includes(possibleUrl.toLowerCase()) ||
+          url.includes(username.toLowerCase())
+        );
+      }) || existingPublisher;
+
+      if (!matchedPublisher) {
+        // Get username-specific URL for clearer instructions
+        const yourTelegramUrl = msg.from?.username
+          ? `https://t.me/${msg.from.username}`
+          : 'your Telegram profile URL';
+
         await sendMessage(chatId,
           `❌ <b>Telegram Link Not Found</b>\n\n` +
-          `Please add your Telegram link in the DiskNova app first:\n` +
-          `1. Go to Social Links section\n` +
-          `2. Add your Telegram URL: https://t.me/${username}\n` +
-          `3. Then come back and use /link again`
+          `Please add your Telegram link in the DiskNova app first:\n\n` +
+          `1. Open DiskNova app\n` +
+          `2. Go to Profile → Social Links\n` +
+          `3. Add Telegram URL: <code>${yourTelegramUrl}</code>\n` +
+          `4. Save changes\n` +
+          `5. Come back and use /link again\n\n` +
+          `<i>Make sure the URL matches your Telegram username!</i>`
         );
         return res.status(200).json({ ok: true });
       }
@@ -286,28 +164,35 @@ export default async function handler(req, res) {
       const token = [...Array(30)].map(() => (Math.random() * 36 | 0).toString(36)).join('');
       const expiresAt = new Date(Date.now() + 1000 * 60 * 15).toISOString();
 
-      // Delete old tokens
+      // Delete old tokens for this telegram_id
       await supabase
         .from('telegram_verifications')
         .delete()
         .eq('telegram_id', tgUserId);
 
-      // Insert new token with publisher_id
-      await supabase
+      // Insert new token
+      const { error: insertError } = await supabase
         .from('telegram_verifications')
         .insert({
           telegram_id: tgUserId,
           token,
           expires_at: expiresAt,
           used: false,
-          publisher_id: publisherWithUrl.id
+          publisher_id: matchedPublisher.id
         });
+
+      if (insertError) {
+        console.error('Error creating verification:', insertError);
+        await sendMessage(chatId, '❌ Failed to create verification link. Please try again.');
+        return res.status(200).json({ ok: true });
+      }
 
       const verifyUrl = `${WEBAPP_URL}/api/verify-telegram?token=${token}&telegram_id=${tgUserId}`;
 
       await sendMessage(chatId,
         `🔗 <b>Verification Link Created!</b>\n\n` +
-        `Click the link below to verify your account:\n\n` +
+        `Account: ${matchedPublisher.first_name} (${matchedPublisher.brand_name})\n\n` +
+        `Click the button below to verify your account:\n\n` +
         `⏱ Link expires in 15 minutes.`,
         {
           reply_markup: {
@@ -376,11 +261,11 @@ export default async function handler(req, res) {
           .from('videos')
           .getPublicUrl(fileName);
 
-        // Insert into videos table with publisher's user_id
+        // Insert into videos table
         const { data: videoRecord, error: dbErr } = await supabase
           .from('videos')
           .insert({
-            user_id: publisher.user_id, // ✅ Use publisher's user_id
+            user_id: publisher.user_id,
             title: msg.caption || originalName,
             description: `Uploaded via Telegram by ${username}`,
             video_url: publicUrl,
