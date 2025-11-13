@@ -347,7 +347,8 @@ export default async function handler(req, res) {
 
             const timestamp = Date.now();
             const originalName = fileObj.file_name || `video_${timestamp}.mp4`;
-            const fileName = `telegram/${publisher.user_id}_${timestamp}_${originalName}`;
+            const uniqueFileName = `${publisher.user_id}_${timestamp}_${originalName}`;
+            const fileName = `telegram/${uniqueFileName}`;
 
             const { error: uploadErr } = await supabase.storage
               .from('videos')
@@ -369,6 +370,7 @@ export default async function handler(req, res) {
                 title: pendingUpload.title,
                 description: pendingUpload.description,
                 video_url: publicUrl,
+                file_name: uniqueFileName,
                 file_size: fileObj.file_size || 0,
                 duration: fileObj.duration || 0,
                 views: 0,
