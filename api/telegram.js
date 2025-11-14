@@ -698,9 +698,9 @@ export default async function handler(req, res) {
         `Go to: Profile → Verification → Social Links → Telegram\n\n` +
         `<b>Step 2:</b> Send your Telegram link here\n` +
         `Example formats:\n` +
-        `• https://t.me/Hkgaming07\n` +
-        `• t.me/Hkgaming07\n` +
-        `• @Hkgaming07\n\n` +
+        `• https://t.me/disknova_support_team\n` +
+        `• t.me/disknova_support_team\n` +
+        `• @disknova_support_team\n\n` +
         `<b>Step 3:</b> Click the verification link I send\n\n` +
         `That's it! Then you can upload videos. 🎥`
       );
