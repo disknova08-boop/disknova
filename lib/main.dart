@@ -128,7 +128,7 @@ class DiskNovaApp extends StatelessWidget {
     return null;
   }
 }
-const String APP_URL = 'https://disknova-2cna-6s1ooz0i1-disknovas-projects.vercel.app';
+const String APP_URL = 'https://disknova-2cna.vercel.app/api';
 
 // Deployment Info:
 // Bot Token: 8029120671:AAGkMYPVLp7K5DUs8HLkCvI6IWMD4Zu5NbA

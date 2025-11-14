@@ -20,6 +20,14 @@
       "dest": "/api/verify-telegram.js"
     },
     {
+      "src": "/api/confirm",
+      "dest": "/api/confirm.js"
+    },
+    {
+      "src": "/api/reset-password",
+      "dest": "/api/reset-password.js"
+    },
+    {
       "src": "/video/([^/]+)",
       "dest": "/api/video.js?id=$1"
     },
