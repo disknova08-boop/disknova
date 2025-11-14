@@ -206,6 +206,8 @@ export default async (req, res) => {
             font-family: monospace;
             font-size: 12px;
             display: none;
+            text-align: left;
+            word-break: break-all;
         }
 
         @media (max-width: 640px) {
@@ -253,47 +255,60 @@ export default async (req, res) => {
                 throw new Error('No video ID provided');
             }
 
-            // ✅ Query video from Supabase using UUID
-            const { data: video, error } = await supabase
+            // ✅ First, get the video data
+            const { data: video, error: videoError } = await supabase
                 .from('videos')
-                .select(\`
-                    *,
-                    publishers:user_id (
-                        first_name,
-                        last_name,
-                        brand_name
-                    )
-                \`)
+                .select('*')
                 .eq('id', VIDEO_ID)
                 .single();
 
-            console.log('📊 Query response:', { video, error });
+            console.log('📊 Video query response:', { video, error: videoError });
 
-            if (error) {
-                console.error('❌ Supabase error:', error);
-                throw new Error(\`Database error: \${error.message}\`);
+            if (videoError) {
+                console.error('❌ Supabase error:', videoError);
+                throw new Error(\`Database error: \${videoError.message}\`);
             }
 
             if (!video) {
                 throw new Error('Video not found in database');
             }
 
+            // ✅ Then, separately get publisher info
+            let publisher = null;
+            if (video.user_id) {
+                const { data: publisherData, error: publisherError } = await supabase
+                    .from('publishers')
+                    .select('first_name, last_name, brand_name')
+                    .eq('id', video.user_id)
+                    .single();
+
+                if (!publisherError && publisherData) {
+                    publisher = publisherData;
+                }
+                console.log('👤 Publisher query response:', { publisher, error: publisherError });
+            }
+
             console.log('✅ Video loaded successfully:', video.title);
 
             // ✅ Increment view count
             try {
-                await supabase.rpc('increment_video_views', { video_id: VIDEO_ID });
-                console.log('👁️ View count incremented');
+                const { error: viewError } = await supabase.rpc('increment_video_views', {
+                    video_id: VIDEO_ID
+                });
+                if (!viewError) {
+                    console.log('👁️ View count incremented');
+                } else {
+                    console.warn('⚠️ Could not increment views:', viewError);
+                }
             } catch (viewError) {
-                console.warn('⚠️ Could not increment views:', viewError);
+                console.warn('⚠️ View increment failed:', viewError);
             }
 
             loading.style.display = 'none';
 
-            const publisher = video.publishers;
             const publisherName = publisher ?
                 \`\${publisher.first_name || ''} \${publisher.last_name || ''}\`.trim() :
-                'Unknown';
+                'Unknown Publisher';
 
             // ✅ Display video player
             app.innerHTML = \`
@@ -369,18 +384,15 @@ export default async (req, res) => {
                     <h1 class="error-title">Video Not Found</h1>
                     <p class="error-message">
                         The video you're looking for doesn't exist or has been removed.
-                        <br><br>
-                        <strong>Video ID:</strong> ${videoId}
-                        <br>
-                        <strong>Error:</strong> \${error.message}
                     </p>
                     <div class="debug-info" id="debugInfo">
                         <strong>Debug Information:</strong><br>
                         Video ID: ${videoId}<br>
                         Error: \${error.message}<br>
-                        URL: \${window.location.href}
+                        URL: \${window.location.href}<br>
+                        Stack: \${error.stack || 'N/A'}
                     </div>
-                    <button class="btn btn-secondary" onclick="document.getElementById('debugInfo').style.display='block'">
+                    <button class="btn btn-secondary" onclick="document.getElementById('debugInfo').style.display='block'" style="margin: 10px auto;">
                         Show Debug Info
                     </button>
                     <button class="btn btn-primary" onclick="window.location.href='https://disknova-2cna.vercel.app'">
