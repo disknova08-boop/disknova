@@ -24,7 +24,15 @@
       "dest": "/api/confirm.js"
     },
     {
+      "src": "/confirm",
+      "dest": "/api/confirm.js"
+    },
+    {
       "src": "/api/reset-password",
+      "dest": "/api/reset-password.js"
+    },
+    {
+      "src": "/reset-password",
       "dest": "/api/reset-password.js"
     },
     {
