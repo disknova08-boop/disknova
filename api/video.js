@@ -1,6 +1,4 @@
-const https = require('https');
-
-module.exports = async (req, res) => {
+export default async (req, res) => {
   const videoId = req.query.id;
 
   if (!videoId) {

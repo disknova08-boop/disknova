@@ -421,6 +421,7 @@
 //  }
 //}
 // api/telegram.js
+// api/telegram.js
 import axios from 'axios';
 import { createClient } from '@supabase/supabase-js';
 
@@ -431,7 +432,7 @@ const WEBAPP_URL = process.env.WEBAPP_URL || 'https://disknova-2cna.vercel.app';
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
-// Store pending uploads temporarily
+// Store pending uploads for batch processing
 const pendingUploads = new Map();
 
 async function sendMessage(chatId, text, options = {}) {
@@ -467,6 +468,90 @@ function extractUsername(text) {
   return null;
 }
 
+// ✅ Generate unique filename with brand name + timestamp
+function generateFileName(brandName, originalFileName, timestamp) {
+  const sanitizedBrandName = brandName
+    .replace(/[^a-zA-Z0-9]/g, '_')
+    .substring(0, 30);
+
+  const extension = originalFileName?.split('.').pop() || 'mp4';
+  return `${sanitizedBrandName}_${timestamp}.${extension}`;
+}
+
+// ✅ Upload single video
+async function uploadVideo(fileObj, publisher, chatId) {
+  try {
+    const fileId = fileObj.file_id;
+
+    // Get file from Telegram
+    const getFileResp = await axios.get(
+      `https://api.telegram.org/bot${BOT_TOKEN}/getFile?file_id=${fileId}`
+    );
+    const filePath = getFileResp.data.result.file_path;
+    const fileUrl = `https://api.telegram.org/file/bot${BOT_TOKEN}/${filePath}`;
+
+    const fileResp = await axios.get(fileUrl, { responseType: 'arraybuffer' });
+    const buffer = Buffer.from(fileResp.data);
+
+    const timestamp = Date.now();
+    const brandName = publisher.brand_name || publisher.first_name || 'User';
+    const uniqueFileName = generateFileName(brandName, fileObj.file_name, timestamp);
+    const fileName = `telegram/${uniqueFileName}`;
+
+    // Upload to Supabase Storage
+    const { error: uploadErr } = await supabase.storage
+      .from('videos')
+      .upload(fileName, buffer, {
+        contentType: fileObj.mime_type || 'video/mp4',
+        upsert: false
+      });
+
+    if (uploadErr) throw uploadErr;
+
+    // Get public URL
+    const { data: { publicUrl } } = supabase.storage
+      .from('videos')
+      .getPublicUrl(fileName);
+
+    // Insert into database
+    const { data: videoRecord, error: dbErr } = await supabase
+      .from('videos')
+      .insert({
+        user_id: publisher.user_id,
+        title: uniqueFileName.replace(/\.[^/.]+$/, ''), // filename without extension
+        description: `Uploaded via Telegram on ${new Date().toLocaleString()}`,
+        video_url: publicUrl,
+        file_name: uniqueFileName,
+        file_size: fileObj.file_size || 0,
+        duration: fileObj.duration || 0,
+        views: 0,
+        created_at: new Date().toISOString()
+      })
+      .select()
+      .single();
+
+    if (dbErr) throw dbErr;
+
+    const shareUrl = `${WEBAPP_URL}/video/${videoRecord.id}`;
+
+    return {
+      success: true,
+      fileName: uniqueFileName,
+      fileSize: fileObj.file_size,
+      shareUrl,
+      videoId: videoRecord.id
+    };
+
+  } catch (error) {
+    console.error('Upload error:', error);
+    return {
+      success: false,
+      error: error.message,
+      fileName: fileObj.file_name || 'video'
+    };
+  }
+}
+
 export default async function handler(req, res) {
   if (req.method === 'GET') return res.status(200).json({ status: 'Bot active' });
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
@@ -477,10 +562,6 @@ export default async function handler(req, res) {
 
   const chatId = msg.chat?.id;
   const tgUserId = msg.from?.id;
-  const username = msg.from?.username || msg.from?.first_name || 'User';
-
-  // ✅ Get bot username from message (this will be the actual bot username)
-  const botUsername = msg.chat?.username || 'Hkgaming07'; // Fallback to default
 
   try {
     // ✅ /start command
@@ -492,7 +573,7 @@ export default async function handler(req, res) {
         `/link - Link your Telegram account\n` +
         `/status - Check verification status\n` +
         `/help - Show help\n` +
-        `/cancel - Cancel current upload\n\n` +
+        `/done - Finish batch upload\n\n` +
         `<b>To get started:</b>\n` +
         `Send me your Telegram profile link to verify your account.`
       );
@@ -507,13 +588,12 @@ export default async function handler(req, res) {
         `/start - Welcome message\n` +
         `/link - Get verification instructions\n` +
         `/status - Check verification status\n` +
-        `/cancel - Cancel current upload\n` +
+        `/done - Finish batch upload\n` +
         `/help - Show this message\n\n` +
         `<b>How to upload videos:</b>\n` +
-        `1. Send video file\n` +
-        `2. Enter video title\n` +
-        `3. Enter description\n` +
-        `4. Video will be uploaded!\n\n` +
+        `1. Send one or multiple video files\n` +
+        `2. Videos auto-upload with brand name\n` +
+        `3. Send /done when finished (optional)\n\n` +
         `<b>First time setup:</b>\n` +
         `1. Add your Telegram link in DiskNova app\n` +
         `2. Send your Telegram link here\n` +
@@ -523,14 +603,57 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true });
     }
 
-    // ✅ /cancel command
-    if (msg.text?.trim().toLowerCase() === '/cancel') {
-      if (pendingUploads.has(tgUserId)) {
-        pendingUploads.delete(tgUserId);
-        await sendMessage(chatId, '❌ Upload cancelled. Send a new video to start again.');
-      } else {
-        await sendMessage(chatId, 'No active upload to cancel.');
+    // ✅ /done command - Process batch uploads
+    if (msg.text?.trim().toLowerCase() === '/done') {
+      const userUploads = pendingUploads.get(tgUserId);
+
+      if (!userUploads || userUploads.length === 0) {
+        await sendMessage(chatId, '✅ No pending uploads. Send videos to upload!');
+        return res.status(200).json({ ok: true });
       }
+
+      await sendMessage(chatId,
+        `⏳ <b>Processing ${userUploads.length} video(s)...</b>\n\nPlease wait...`
+      );
+
+      const results = await Promise.all(
+        userUploads.map(({ fileObj, publisher }) =>
+          uploadVideo(fileObj, publisher, chatId)
+        )
+      );
+
+      const successful = results.filter(r => r.success);
+      const failed = results.filter(r => !r.success);
+
+      let message = '';
+
+      if (successful.length > 0) {
+        message += `✅ <b>${successful.length} Video(s) Uploaded Successfully!</b>\n\n`;
+
+        successful.forEach((result, index) => {
+          message += `${index + 1}. ${result.fileName}\n`;
+          message += `   📊 ${(result.fileSize / 1024 / 1024).toFixed(2)} MB\n`;
+          message += `   🔗 ${result.shareUrl}\n\n`;
+        });
+      }
+
+      if (failed.length > 0) {
+        message += `\n❌ <b>${failed.length} Upload(s) Failed:</b>\n\n`;
+        failed.forEach((result, index) => {
+          message += `${index + 1}. ${result.fileName}: ${result.error}\n`;
+        });
+      }
+
+      await sendMessage(chatId, message, {
+        reply_markup: successful.length > 0 ? {
+          inline_keyboard: [[
+            { text: '🔗 View First Video', url: successful[0].shareUrl },
+            { text: '📊 Dashboard', url: WEBAPP_URL }
+          ]]
+        } : undefined
+      });
+
+      pendingUploads.delete(tgUserId);
       return res.status(200).json({ ok: true });
     }
 
@@ -549,7 +672,7 @@ export default async function handler(req, res) {
           `Brand: ${publisher.brand_name}\n` +
           `Link: ${publisher.telegram_url}\n\n` +
           `🎬 You can now upload videos!\n\n` +
-          `Just send me a video file and I'll guide you through the process.`
+          `Just send me video files and they'll be uploaded automatically.`
         );
       } else if (publisher && !publisher.telegram_verified) {
         await sendMessage(chatId,
@@ -584,121 +707,11 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true });
     }
 
-    // ✅ Handle Telegram link messages
+    // ✅ Handle Telegram link verification
     if (msg.text && !msg.text.startsWith('/')) {
       const messageText = msg.text.trim();
       const sentUsername = extractUsername(messageText);
 
-      // Check if user is in middle of video upload
-      const pendingUpload = pendingUploads.get(tgUserId);
-
-      if (pendingUpload) {
-        // User is providing title or description
-        if (pendingUpload.step === 'waiting_title') {
-          pendingUpload.title = messageText;
-          pendingUpload.step = 'waiting_description';
-          pendingUploads.set(tgUserId, pendingUpload);
-
-          await sendMessage(chatId,
-            `✅ <b>Title saved:</b> ${messageText}\n\n` +
-            `📝 Now send the video description:\n` +
-            `(This will help viewers understand what the video is about)`
-          );
-          return res.status(200).json({ ok: true });
-        }
-
-        if (pendingUpload.step === 'waiting_description') {
-          pendingUpload.description = messageText;
-          pendingUpload.step = 'processing';
-          pendingUploads.set(tgUserId, pendingUpload);
-
-          await sendMessage(chatId, '⏳ <b>Processing your video...</b>\n\nPlease wait while we upload it to DiskNova.');
-
-          try {
-            const { fileObj, publisher } = pendingUpload;
-            const fileId = fileObj.file_id;
-
-            const getFileResp = await axios.get(
-              `https://api.telegram.org/bot${BOT_TOKEN}/getFile?file_id=${fileId}`
-            );
-            const filePath = getFileResp.data.result.file_path;
-            const fileUrl = `https://api.telegram.org/file/bot${BOT_TOKEN}/${filePath}`;
-
-            const fileResp = await axios.get(fileUrl, { responseType: 'arraybuffer' });
-            const buffer = Buffer.from(fileResp.data);
-
-            const timestamp = Date.now();
-            const originalName = fileObj.file_name || `video_${timestamp}.mp4`;
-            const uniqueFileName = `${publisher.user_id}_${timestamp}_${originalName}`;
-            const fileName = `telegram/${uniqueFileName}`;
-
-            const { error: uploadErr } = await supabase.storage
-              .from('videos')
-              .upload(fileName, buffer, {
-                contentType: fileObj.mime_type || 'video/mp4',
-                upsert: false
-              });
-
-            if (uploadErr) throw uploadErr;
-
-            const { data: { publicUrl } } = supabase.storage
-              .from('videos')
-              .getPublicUrl(fileName);
-
-            const { data: videoRecord, error: dbErr } = await supabase
-              .from('videos')
-              .insert({
-                user_id: publisher.user_id,
-                title: pendingUpload.title,
-                description: pendingUpload.description,
-                video_url: publicUrl,
-                file_name: uniqueFileName,
-                file_size: fileObj.file_size || 0,
-                duration: fileObj.duration || 0,
-                views: 0,
-                created_at: new Date().toISOString()
-              })
-              .select()
-              .single();
-
-            if (dbErr) throw dbErr;
-
-            const shareUrl = `${WEBAPP_URL}/video/${videoRecord.id}`;
-
-            await sendMessage(chatId,
-              `✅ <b>Video Uploaded Successfully!</b>\n\n` +
-              `📁 <b>File:</b> ${originalName}\n` +
-              `📊 <b>Size:</b> ${(fileObj.file_size / 1024 / 1024).toFixed(2)} MB\n` +
-              `🎬 <b>Title:</b> ${pendingUpload.title}\n` +
-              `📝 <b>Description:</b> ${pendingUpload.description.substring(0, 50)}...\n\n` +
-              `🔗 <b>Share Link:</b>\n${shareUrl}`,
-              {
-                reply_markup: {
-                  inline_keyboard: [[
-                    { text: '🔗 View Video', url: shareUrl },
-                    { text: '📊 Dashboard', url: WEBAPP_URL }
-                  ]]
-                }
-              }
-            );
-
-            pendingUploads.delete(tgUserId);
-
-          } catch (uploadError) {
-            console.error('Upload error:', uploadError);
-            await sendMessage(chatId,
-              `❌ <b>Upload Failed</b>\n\n` +
-              `Error: ${uploadError.message}\n\n` +
-              `Please try again by sending your video.`
-            );
-            pendingUploads.delete(tgUserId);
-          }
-
-          return res.status(200).json({ ok: true });
-        }
-      }
-
-      // If not in upload process, treat as Telegram link verification
       if (!sentUsername) {
         await sendMessage(chatId,
           `❌ <b>Invalid Telegram Link</b>\n\n` +
@@ -711,7 +724,6 @@ export default async function handler(req, res) {
         return res.status(200).json({ ok: true });
       }
 
-      // Search for matching publisher
       const { data: allPublishers } = await supabase
         .from('publishers')
         .select('*')
@@ -747,12 +759,11 @@ export default async function handler(req, res) {
           `Name: ${matchedPublisher.first_name}\n` +
           `Brand: ${matchedPublisher.brand_name}\n\n` +
           `🎬 <b>Ready to upload videos?</b>\n` +
-          `Just send me any video file and I'll help you upload it to DiskNova!`
+          `Just send me any video file(s) and they'll be uploaded automatically!`
         );
         return res.status(200).json({ ok: true });
       }
 
-      // Generate verification token
       const token = [...Array(30)].map(() => (Math.random() * 36 | 0).toString(36)).join('');
       const expiresAt = new Date(Date.now() + 1000 * 60 * 15).toISOString();
 
@@ -761,7 +772,6 @@ export default async function handler(req, res) {
         .delete()
         .eq('telegram_id', tgUserId);
 
-      // ✅ Store bot_username in verification record
       const { error: insertError } = await supabase
         .from('telegram_verifications')
         .insert({
@@ -770,7 +780,7 @@ export default async function handler(req, res) {
           expires_at: expiresAt,
           used: false,
           publisher_id: matchedPublisher.id,
-          bot_username: msg.from?.username || 'User' // ✅ Store user's username who initiated
+          bot_username: msg.from?.username || 'User'
         });
 
       if (insertError) {
@@ -779,7 +789,6 @@ export default async function handler(req, res) {
         return res.status(200).json({ ok: true });
       }
 
-      // ✅ Pass bot_username in URL
       const verifyUrl = `${WEBAPP_URL}/api/verify-telegram?token=${token}&telegram_id=${tgUserId}&bot_username=${encodeURIComponent(msg.from?.username || 'User')}`;
 
       await sendMessage(chatId,
@@ -800,7 +809,7 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true });
     }
 
-    // ✅ Handle video/document uploads
+    // ✅ Handle video/document uploads (instant upload)
     if (msg.video || msg.document) {
       const { data: publisher } = await supabase
         .from('publishers')
@@ -820,21 +829,38 @@ export default async function handler(req, res) {
 
       const fileObj = msg.video || msg.document;
 
-      pendingUploads.set(tgUserId, {
-        fileObj,
-        publisher,
-        step: 'waiting_title',
-        timestamp: Date.now()
-      });
-
       await sendMessage(chatId,
-        `🎬 <b>Video Received!</b>\n\n` +
+        `⏳ <b>Uploading video...</b>\n\n` +
         `📁 File: ${fileObj.file_name || 'video.mp4'}\n` +
-        `📊 Size: ${(fileObj.file_size / 1024 / 1024).toFixed(2)} MB\n\n` +
-        `✍️ <b>Step 1/2:</b> Please send the video title:\n` +
-        `(Example: "How to cook pasta" or "Gaming highlights")\n\n` +
-        `Type /cancel to cancel this upload.`
+        `📊 Size: ${(fileObj.file_size / 1024 / 1024).toFixed(2)} MB`
       );
+
+      // ✅ Upload immediately
+      const result = await uploadVideo(fileObj, publisher, chatId);
+
+      if (result.success) {
+        await sendMessage(chatId,
+          `✅ <b>Video Uploaded Successfully!</b>\n\n` +
+          `📁 <b>File:</b> ${result.fileName}\n` +
+          `📊 <b>Size:</b> ${(result.fileSize / 1024 / 1024).toFixed(2)} MB\n\n` +
+          `🔗 <b>Share Link:</b>\n${result.shareUrl}`,
+          {
+            reply_markup: {
+              inline_keyboard: [[
+                { text: '🔗 View Video', url: result.shareUrl },
+                { text: '📊 Dashboard', url: WEBAPP_URL }
+              ]]
+            }
+          }
+        );
+      } else {
+        await sendMessage(chatId,
+          `❌ <b>Upload Failed</b>\n\n` +
+          `Error: ${result.error}\n\n` +
+          `Please try again.`
+        );
+      }
+
       return res.status(200).json({ ok: true });
     }
 
