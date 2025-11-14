@@ -5,6 +5,12 @@ export default async (req, res) => {
     return res.status(400).send('Video ID is required');
   }
 
+  // ✅ Validate UUID format (basic check)
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!uuidRegex.test(videoId)) {
+    return res.status(400).send('Invalid video ID format');
+  }
+
   const html = `
 <!DOCTYPE html>
 <html lang="en">
@@ -12,6 +18,9 @@ export default async (req, res) => {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DiskNova - Video Player</title>
+    <meta property="og:title" content="DiskNova Video">
+    <meta property="og:description" content="Watch this video on DiskNova">
+    <meta property="og:type" content="video.other">
     <style>
         * {
             margin: 0;
@@ -59,6 +68,7 @@ export default async (req, res) => {
             color: white;
             font-size: 18px;
             text-align: center;
+            z-index: 10;
         }
 
         .spinner {
@@ -166,6 +176,7 @@ export default async (req, res) => {
         .error-message {
             color: #64748b;
             margin-bottom: 30px;
+            line-height: 1.6;
         }
 
         .publisher-info {
@@ -184,6 +195,17 @@ export default async (req, res) => {
         .publisher-brand {
             color: #64748b;
             font-size: 14px;
+        }
+
+        .debug-info {
+            background: #fef3c7;
+            border: 2px solid #fbbf24;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+            font-family: monospace;
+            font-size: 12px;
+            display: none;
         }
 
         @media (max-width: 640px) {
@@ -225,10 +247,13 @@ export default async (req, res) => {
         const loading = document.getElementById('loading');
 
         try {
-            if (!VIDEO_ID) {
+            console.log('🎬 Loading video with ID:', VIDEO_ID);
+
+            if (!VIDEO_ID || VIDEO_ID === 'undefined') {
                 throw new Error('No video ID provided');
             }
 
+            // ✅ Query video from Supabase using UUID
             const { data: video, error } = await supabase
                 .from('videos')
                 .select(\`
@@ -242,11 +267,26 @@ export default async (req, res) => {
                 .eq('id', VIDEO_ID)
                 .single();
 
-            if (error || !video) {
-                throw new Error('Video not found');
+            console.log('📊 Query response:', { video, error });
+
+            if (error) {
+                console.error('❌ Supabase error:', error);
+                throw new Error(\`Database error: \${error.message}\`);
             }
 
-            await supabase.rpc('increment_video_views', { video_id: VIDEO_ID });
+            if (!video) {
+                throw new Error('Video not found in database');
+            }
+
+            console.log('✅ Video loaded successfully:', video.title);
+
+            // ✅ Increment view count
+            try {
+                await supabase.rpc('increment_video_views', { video_id: VIDEO_ID });
+                console.log('👁️ View count incremented');
+            } catch (viewError) {
+                console.warn('⚠️ Could not increment views:', viewError);
+            }
 
             loading.style.display = 'none';
 
@@ -255,9 +295,10 @@ export default async (req, res) => {
                 \`\${publisher.first_name || ''} \${publisher.last_name || ''}\`.trim() :
                 'Unknown';
 
+            // ✅ Display video player
             app.innerHTML = \`
                 <div class="video-container">
-                    <video controls autoplay>
+                    <video controls autoplay controlsList="nodownload">
                         <source src="\${video.video_url}" type="video/mp4">
                         Your browser does not support the video tag.
                     </video>
@@ -292,11 +333,11 @@ export default async (req, res) => {
                     <div class="actions">
                         <button class="btn btn-primary" onclick="downloadVideo('\${video.video_url}', '\${video.title}')">
                             <span>⬇️</span>
-                            <span>Download</span>
+                            <span>Download Video</span>
                         </button>
                         <button class="btn btn-secondary" onclick="shareVideo()">
                             <span>🔗</span>
-                            <span>Share</span>
+                            <span>Share Link</span>
                         </button>
                         <button class="btn btn-secondary" onclick="copyLink()">
                             <span>📋</span>
@@ -319,17 +360,31 @@ export default async (req, res) => {
             \`;
 
         } catch (error) {
-            console.error('Error loading video:', error);
+            console.error('💥 Error loading video:', error);
             loading.style.display = 'none';
+
             app.innerHTML = \`
                 <div class="error-container">
                     <div class="error-icon">❌</div>
                     <h1 class="error-title">Video Not Found</h1>
                     <p class="error-message">
                         The video you're looking for doesn't exist or has been removed.
+                        <br><br>
+                        <strong>Video ID:</strong> ${videoId}
+                        <br>
+                        <strong>Error:</strong> \${error.message}
                     </p>
-                    <button class="btn btn-primary" onclick="window.location.href='/'">
-                        Go Home
+                    <div class="debug-info" id="debugInfo">
+                        <strong>Debug Information:</strong><br>
+                        Video ID: ${videoId}<br>
+                        Error: \${error.message}<br>
+                        URL: \${window.location.href}
+                    </div>
+                    <button class="btn btn-secondary" onclick="document.getElementById('debugInfo').style.display='block'">
+                        Show Debug Info
+                    </button>
+                    <button class="btn btn-primary" onclick="window.location.href='https://disknova-2cna.vercel.app'">
+                        Go to Home
                     </button>
                 </div>
             \`;
@@ -359,13 +414,14 @@ export default async (req, res) => {
 
     async function downloadVideo(url, filename) {
         try {
+            console.log('📥 Starting download...');
             const response = await fetch(url);
             const blob = await response.blob();
             const blobUrl = window.URL.createObjectURL(blob);
 
             const a = document.createElement('a');
             a.href = blobUrl;
-            a.download = filename || 'video.mp4';
+            a.download = (filename || 'video') + '.mp4';
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
@@ -397,12 +453,13 @@ export default async (req, res) => {
     function copyLink() {
         const url = window.location.href;
         navigator.clipboard.writeText(url).then(() => {
-            alert('Link copied to clipboard! ✅');
+            alert('Link copied to clipboard! ✅\\n' + url);
         }).catch(() => {
             alert('Failed to copy link');
         });
     }
 
+    // ✅ Load video when page loads
     window.addEventListener('DOMContentLoaded', loadVideo);
 </script>
 </body>
