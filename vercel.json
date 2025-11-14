@@ -8,10 +8,6 @@
     {
       "src": "build/web/**",
       "use": "@vercel/static"
-    },
-    {
-      "src": "video/[id].html",
-      "use": "@vercel/static"
     }
   ],
   "routes": [
@@ -25,7 +21,7 @@
     },
     {
       "src": "/video/([^/]+)",
-      "dest": "/video/[id].html"
+      "dest": "/api/video.js?id=$1"
     },
     {
       "src": "/(.*)",
