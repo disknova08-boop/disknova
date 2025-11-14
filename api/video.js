@@ -122,11 +122,13 @@ export default async (req, res) => {
             display: flex;
             gap: 15px;
             flex-wrap: wrap;
+            justify-content: center;
+            margin-top: 20px;
         }
 
         .btn {
-            padding: 12px 24px;
-            border-radius: 10px;
+            padding: 14px 32px;
+            border-radius: 12px;
             border: none;
             font-size: 16px;
             font-weight: 600;
@@ -134,7 +136,30 @@ export default async (req, res) => {
             transition: all 0.3s;
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 10px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+
+        .btn-download {
+            background: #4CAF50;
+            color: white;
+        }
+
+        .btn-download:hover {
+            background: #45a049;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(76, 175, 80, 0.4);
+        }
+
+        .btn-view {
+            background: #2196F3;
+            color: white;
+        }
+
+        .btn-view:hover {
+            background: #1976D2;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(33, 150, 243, 0.4);
         }
 
         .btn-primary {
@@ -154,6 +179,45 @@ export default async (req, res) => {
 
         .btn-secondary:hover {
             background: #e2e8f0;
+        }
+
+        .app-notice {
+            text-align: center;
+            color: #64748b;
+            font-size: 14px;
+            margin-top: 15px;
+            font-style: italic;
+        }
+
+        .video-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0, 0, 0, 0.7);
+            cursor: pointer;
+            z-index: 5;
+        }
+
+        .play-icon {
+            width: 80px;
+            height: 80px;
+            background: rgba(255, 255, 255, 0.9);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 40px;
+            transition: all 0.3s;
+        }
+
+        .play-icon:hover {
+            transform: scale(1.1);
+            background: white;
         }
 
         .error-container {
@@ -242,7 +306,17 @@ export default async (req, res) => {
     const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV2YWpxdHF5ZHhtdGV6Z2VhaWVmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE5MzI3NDQsImV4cCI6MjA3NzUwODc0NH0.WzRv37Tm7PHH7D1bxE4QnO1lmH2UV2IQ_TqgF1QYUM8';
     const VIDEO_ID = '${videoId}';
 
+    // ✅ Google Play Store URL (change this to your actual app URL when ready)
+    const GOOGLE_PLAY_URL = 'https://play.google.com/store/apps/details?id=com.disknova.app';
+
     const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    function redirectToPlayStore() {
+        console.log('🔗 Redirecting to Google Play Store:', GOOGLE_PLAY_URL);
+        alert('Redirecting to Google Play Store...\\n' + GOOGLE_PLAY_URL);
+        // Uncomment when you have actual Play Store URL:
+        // window.location.href = GOOGLE_PLAY_URL;
+    }
 
     async function loadVideo() {
         const app = document.getElementById('app');
@@ -310,13 +384,16 @@ export default async (req, res) => {
                 \`\${publisher.first_name || ''} \${publisher.last_name || ''}\`.trim() :
                 'Unknown Publisher';
 
-            // ✅ Display video player
+            // ✅ Display video player with overlay
             app.innerHTML = \`
                 <div class="video-container">
-                    <video controls autoplay controlsList="nodownload">
+                    <video id="videoPlayer" controls controlsList="nodownload">
                         <source src="\${video.video_url}" type="video/mp4">
                         Your browser does not support the video tag.
                     </video>
+                    <div class="video-overlay" id="videoOverlay" onclick="redirectToPlayStore()">
+                        <div class="play-icon">▶️</div>
+                    </div>
                 </div>
                 <div class="info-section">
                     <h1 class="video-title">\${video.title || 'Untitled Video'}</h1>
@@ -345,20 +422,22 @@ export default async (req, res) => {
                     \${video.description ? \`
                         <p class="video-description">\${video.description}</p>
                     \` : ''}
+
                     <div class="actions">
-                        <button class="btn btn-primary" onclick="downloadVideo('\${video.video_url}', '\${video.title}')">
-                            <span>⬇️</span>
-                            <span>Download Video</span>
+                        <button class="btn btn-download" onclick="redirectToPlayStore()">
+                            <span>📥</span>
+                            <span>Download App</span>
                         </button>
-                        <button class="btn btn-secondary" onclick="shareVideo()">
-                            <span>🔗</span>
-                            <span>Share Link</span>
-                        </button>
-                        <button class="btn btn-secondary" onclick="copyLink()">
-                            <span>📋</span>
-                            <span>Copy Link</span>
+                        <button class="btn btn-view" onclick="redirectToPlayStore()">
+                            <span>👁️</span>
+                            <span>View in App</span>
                         </button>
                     </div>
+
+                    <p class="app-notice">
+                        *You can view the file in Android/iOS App. Web is not supported.*
+                    </p>
+
                     \${publisher ? \`
                         <div class="publisher-info">
                             <div class="publisher-name">
@@ -373,6 +452,13 @@ export default async (req, res) => {
                     \` : ''}
                 </div>
             \`;
+
+            // Add click listener to video itself
+            const videoPlayer = document.getElementById('videoPlayer');
+            videoPlayer.addEventListener('click', function(e) {
+                e.preventDefault();
+                redirectToPlayStore();
+            });
 
         } catch (error) {
             console.error('💥 Error loading video:', error);
