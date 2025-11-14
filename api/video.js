@@ -315,7 +315,7 @@ export default async (req, res) => {
         console.log('🔗 Redirecting to Google Play Store:', GOOGLE_PLAY_URL);
         alert('Redirecting to Google Play Store...\\n' + GOOGLE_PLAY_URL);
         // Uncomment when you have actual Play Store URL:
-        // window.location.href = GOOGLE_PLAY_URL;
+         window.location.href = GOOGLE_PLAY_URL;
     }
 
     async function loadVideo() {
