@@ -1034,14 +1034,14 @@ export default async function handler(req, res) {
       const result = await uploadVideoOptimized(fileObj, publisher, chatId);
 
       if (result.success) {
-        await sendMessage(chatId,
-          `✅ <b>Upload Complete!</b>\n\n` +
-          `📁 File: ${result.fileName}\n` +
-          `📊 Size: ${(result.fileSize / 1024 / 1024).toFixed(2)} MB\n` +
-          `⚡ Time: ${result.uploadTime}s\n` +
-          `🚀 Speed: ${result.avgSpeed} MB/s\n` +
-          `🖼️ Thumbnail: ${result.hasThumbnail ? 'Yes ✅' : 'No ❌'}`
-        );
+//        await sendMessage(chatId,
+//          `✅ <b>Upload Complete!</b>\n\n` +
+//          `📁 File: ${result.fileName}\n` +
+//          `📊 Size: ${(result.fileSize / 1024 / 1024).toFixed(2)} MB\n` +
+//          `⚡ Time: ${result.uploadTime}s\n` +
+//          `🚀 Speed: ${result.avgSpeed} MB/s\n` +
+//          `🖼️ Thumbnail: ${result.hasThumbnail ? 'Yes ✅' : 'No ❌'}`
+//        );
 
         // Send thumbnail with link
         if (result.hasThumbnail && result.thumbnailUrl) {
