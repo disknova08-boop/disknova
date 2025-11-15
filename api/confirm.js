@@ -2,9 +2,6 @@
 // Create this file in your Vercel project at: /api/confirm.js
 
 export default async (req, res) => {
-  // Get token and type from URL query parameters
-  const { token_hash, type } = req.query;
-
   const html = `
 <!DOCTYPE html>
 <html lang="en">
@@ -141,11 +138,6 @@ export default async (req, res) => {
             box-shadow: 0 10px 20px rgba(102, 126, 234, 0.4);
         }
 
-        .btn:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-        }
-
         .error-details {
             background: #fef2f2;
             border: 2px solid #fca5a5;
@@ -209,89 +201,122 @@ export default async (req, res) => {
 
         try {
             console.log('🔐 Starting email verification...');
+            console.log('Current URL:', window.location.href);
 
-            // Get URL parameters
-            const urlParams = new URLSearchParams(window.location.search);
-            const token_hash = urlParams.get('token_hash');
-            const type = urlParams.get('type');
+            // Get the hash fragment (everything after #)
+            const hashParams = new URLSearchParams(window.location.hash.substring(1));
 
-            console.log('Token hash:', token_hash ? 'Present' : 'Missing');
+            // Also check query parameters as fallback
+            const queryParams = new URLSearchParams(window.location.search);
+
+            // Try to get token from hash first, then from query
+            const access_token = hashParams.get('access_token') || queryParams.get('access_token');
+            const refresh_token = hashParams.get('refresh_token') || queryParams.get('refresh_token');
+            const token_hash = queryParams.get('token_hash');
+            const type = queryParams.get('type') || hashParams.get('type');
+
+            console.log('Access Token:', access_token ? 'Present' : 'Missing');
+            console.log('Refresh Token:', refresh_token ? 'Present' : 'Missing');
+            console.log('Token Hash:', token_hash ? 'Present' : 'Missing');
             console.log('Type:', type);
 
-            if (!token_hash || !type) {
-                throw new Error('Invalid verification link. Missing required parameters.');
+            // Method 1: If we have access_token and refresh_token (from email link)
+            if (access_token && refresh_token) {
+                console.log('✅ Using access/refresh tokens from email link');
+
+                const { data, error } = await supabase.auth.setSession({
+                    access_token: access_token,
+                    refresh_token: refresh_token
+                });
+
+                if (error) throw error;
+
+                console.log('✅ Email verified successfully via session!');
+                showSuccess();
+                return;
             }
 
-            // Verify the email using Supabase
-            const { data, error } = await supabase.auth.verifyOtp({
-                token_hash: token_hash,
-                type: type
-            });
+            // Method 2: If we have token_hash (OTP verification)
+            if (token_hash && type) {
+                console.log('✅ Using OTP verification with token_hash');
 
-            console.log('Verification response:', { data, error });
+                const { data, error } = await supabase.auth.verifyOtp({
+                    token_hash: token_hash,
+                    type: type
+                });
 
-            if (error) {
-                throw new Error(error.message);
+                if (error) throw error;
+
+                console.log('✅ Email verified successfully via OTP!');
+                showSuccess();
+                return;
             }
 
-            // Success!
-            console.log('✅ Email verified successfully!');
-
-            app.innerHTML = \`
-                <div class="logo">
-                    <div class="logo-icon">💾</div>
-                    <div class="logo-text">DiskNova</div>
-                </div>
-
-                <div class="status-icon success">
-                    ✅
-                </div>
-
-                <h1>Email Verified Successfully!</h1>
-                <p class="message">
-                    Your email has been verified. You can now access your dashboard and start uploading videos.
-                </p>
-
-                <button class="btn" onclick="goToDashboard()">
-                    Go to Dashboard
-                </button>
-
-                <div class="footer">
-                    © 2025 DiskNova. All rights reserved.
-                </div>
-            \`;
+            // If no valid params found
+            throw new Error('Invalid verification link. Missing required authentication parameters.');
 
         } catch (error) {
             console.error('❌ Verification failed:', error);
-
-            app.innerHTML = \`
-                <div class="logo">
-                    <div class="logo-icon">💾</div>
-                    <div class="logo-text">DiskNova</div>
-                </div>
-
-                <div class="status-icon error">
-                    ❌
-                </div>
-
-                <h1>Verification Failed</h1>
-                <p class="message">
-                    We couldn't verify your email address. The link may have expired or been used already.
-                </p>
-
-                <div class="error-details">
-                    <strong>Error:</strong> \${error.message}
-                </div>
-
-                <button class="btn" onclick="goToDashboard()">
-                    Back to Dashboard
-                </button>
-
-                <div class="footer">
-                    Need help? Contact support at support@disknova.com
-                </div>
-            \`;
+            showError(error.message || 'Verification failed');
         }
+    }
+
+    function showSuccess() {
+        const app = document.getElementById('app');
+        app.innerHTML = \`
+            <div class="logo">
+                <div class="logo-icon">💾</div>
+                <div class="logo-text">DiskNova</div>
+            </div>
+
+            <div class="status-icon success">
+                ✅
+            </div>
+
+            <h1>Email Verified Successfully!</h1>
+            <p class="message">
+                Your email has been verified. You can now access your dashboard and start uploading videos.
+            </p>
+
+            <button class="btn" onclick="goToDashboard()">
+                Go to Dashboard
+            </button>
+
+            <div class="footer">
+                © 2025 DiskNova. All rights reserved.
+            </div>
+        \`;
+    }
+
+    function showError(errorMessage) {
+        const app = document.getElementById('app');
+        app.innerHTML = \`
+            <div class="logo">
+                <div class="logo-icon">💾</div>
+                <div class="logo-text">DiskNova</div>
+            </div>
+
+            <div class="status-icon error">
+                ❌
+            </div>
+
+            <h1>Verification Failed</h1>
+            <p class="message">
+                We couldn't verify your email address. The link may have expired or been used already.
+            </p>
+
+            <div class="error-details">
+                <strong>Error:</strong> \${errorMessage}
+            </div>
+
+            <button class="btn" onclick="goToDashboard()">
+                Back to Dashboard
+            </button>
+
+            <div class="footer">
+                Need help? Contact support at support@disknova.com
+            </div>
+        \`;
     }
 
     function goToDashboard() {

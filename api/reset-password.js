@@ -348,6 +348,8 @@ export default async (req, res) => {
     const formView = document.getElementById('formView');
     const successView = document.getElementById('successView');
 
+    let isSessionValid = false;
+
     // Validate password requirements
     newPasswordInput.addEventListener('input', function() {
         const password = this.value;
@@ -399,6 +401,11 @@ export default async (req, res) => {
         e.preventDefault();
         hideMessages();
 
+        if (!isSessionValid) {
+            showError('Invalid session. Please request a new password reset link.');
+            return;
+        }
+
         const newPassword = newPasswordInput.value;
         const confirmPassword = confirmPasswordInput.value;
 
@@ -440,39 +447,74 @@ export default async (req, res) => {
         }
     });
 
-    // Verify reset token on page load
+    // Verify reset token and establish session on page load
     window.addEventListener('DOMContentLoaded', async function() {
         try {
             console.log('🔐 Verifying reset token...');
+            console.log('Current URL:', window.location.href);
 
-            // Get URL parameters
-            const urlParams = new URLSearchParams(window.location.search);
-            const token_hash = urlParams.get('token_hash');
-            const type = urlParams.get('type');
+            // Get the hash fragment (everything after #)
+            const hashParams = new URLSearchParams(window.location.hash.substring(1));
 
-            console.log('Token hash:', token_hash ? 'Present' : 'Missing');
+            // Also check query parameters as fallback
+            const queryParams = new URLSearchParams(window.location.search);
+
+            // Try to get tokens from hash first, then from query
+            const access_token = hashParams.get('access_token') || queryParams.get('access_token');
+            const refresh_token = hashParams.get('refresh_token') || queryParams.get('refresh_token');
+            const token_hash = queryParams.get('token_hash');
+            const type = queryParams.get('type') || hashParams.get('type');
+
+            console.log('Access Token:', access_token ? 'Present' : 'Missing');
+            console.log('Refresh Token:', refresh_token ? 'Present' : 'Missing');
+            console.log('Token Hash:', token_hash ? 'Present' : 'Missing');
             console.log('Type:', type);
 
-            if (!token_hash || !type) {
-                showError('Invalid reset link. Missing required parameters.');
-                submitBtn.disabled = true;
+            // Method 1: If we have access_token and refresh_token (from email link)
+            if (access_token && refresh_token) {
+                console.log('✅ Using access/refresh tokens from email link');
+
+                const { data, error } = await supabase.auth.setSession({
+                    access_token: access_token,
+                    refresh_token: refresh_token
+                });
+
+                if (error) {
+                    console.error('❌ Session setup failed:', error);
+                    showError('Invalid or expired reset link. Please request a new password reset.');
+                    submitBtn.disabled = true;
+                    return;
+                }
+
+                console.log('✅ Valid reset session - User can now set new password');
+                isSessionValid = true;
                 return;
             }
 
-            // Verify the token
-            const { data, error } = await supabase.auth.verifyOtp({
-                token_hash: token_hash,
-                type: type
-            });
+            // Method 2: If we have token_hash (OTP verification)
+            if (token_hash && type) {
+                console.log('✅ Using OTP verification with token_hash');
 
-            if (error) {
-                console.error('❌ Token verification failed:', error);
-                showError('Invalid or expired reset link. Please request a new password reset.');
-                submitBtn.disabled = true;
+                const { data, error } = await supabase.auth.verifyOtp({
+                    token_hash: token_hash,
+                    type: type
+                });
+
+                if (error) {
+                    console.error('❌ Token verification failed:', error);
+                    showError('Invalid or expired reset link. Please request a new password reset.');
+                    submitBtn.disabled = true;
+                    return;
+                }
+
+                console.log('✅ Valid reset session - User can now set new password');
+                isSessionValid = true;
                 return;
             }
 
-            console.log('✅ Valid reset token - User can now set new password');
+            // If no valid params found
+            showError('Invalid reset link. Missing required authentication parameters.');
+            submitBtn.disabled = true;
 
         } catch (error) {
             console.error('Verification error:', error);
