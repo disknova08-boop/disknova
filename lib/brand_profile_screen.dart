@@ -143,7 +143,9 @@ class _BrandProfileScreenState extends State<BrandProfileScreen>
 
       _showSnackBar('Profile saved successfully!');
     } catch (e) {
-      _showSnackBar('Error saving profile: $e', isError: true);
+      _showSnackBar('Please enter valid url not username!');
+
+      // _showSnackBar('Error saving profile: $e', isError: true);
     } finally {
       setState(() => _isSaving = false);
     }

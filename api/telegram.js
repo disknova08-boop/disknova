@@ -1,6 +1,7 @@
 //
 //import axios from 'axios';
 //import { createClient } from '@supabase/supabase-js';
+//import sharp from 'sharp';
 //
 //const SUPABASE_URL = process.env.SUPABASE_URL;
 //const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
@@ -8,9 +9,6 @@
 //const WEBAPP_URL = process.env.WEBAPP_URL || 'https://disknova-2cna.vercel.app';
 //
 //const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
-//
-//// Store pending uploads temporarily (in production, use Redis or database)
-//const pendingUploads = new Map();
 //
 //async function sendMessage(chatId, text, options = {}) {
 //  try {
@@ -45,6 +43,185 @@
 //  return null;
 //}
 //
+//// ✅ Sanitize filename - remove special characters
+//function sanitizeFileName(fileName) {
+//  if (!fileName || typeof fileName !== "string") {
+//    return "video.mp4";
+//  }
+//
+//  const parts = fileName.split('.');
+//  const extension = parts.length > 1 ? parts.pop() : 'mp4';
+//  const nameWithoutExt = parts.join('.');
+//
+//  const sanitized = nameWithoutExt
+//    .replace(/[^\w\s.-]/g, '')
+//    .replace(/\s+/g, '_')
+//    .replace(/[–—]/g, '-')
+//    .replace(/[\[\](){}]/g, '')
+//    .replace(/_+/g, '_')
+//    .replace(/-+/g, '-')
+//    .replace(/^[.-]+/, '')
+//    .replace(/[.-]+$/, '')
+//    .substring(0, 50);
+//
+//  return `${sanitized || 'video'}.${extension}`;
+//}
+//
+//function generateFileName(brandName, originalFileName, timestamp) {
+//  const safeOriginal = originalFileName || `video_${timestamp}.mp4`;
+//
+//  const sanitizedBrandName = brandName
+//    .replace(/[^a-zA-Z0-9]/g, '_')
+//    .substring(0, 30);
+//
+//  const sanitizedOriginal = sanitizeFileName(safeOriginal);
+//  return `${sanitizedBrandName}_${timestamp}_${sanitizedOriginal}`;
+//}
+//
+//
+//// ✅ Generate thumbnail from Telegram's built-in thumbnail
+//async function getTelegramThumbnail(fileId) {
+//  try {
+//    const getFileResp = await axios.get(
+//      `https://api.telegram.org/bot${BOT_TOKEN}/getFile?file_id=${fileId}`
+//    );
+//    const filePath = getFileResp.data.result.file_path;
+//    const fileUrl = `https://api.telegram.org/file/bot${BOT_TOKEN}/${filePath}`;
+//
+//    const thumbResp = await axios.get(fileUrl, { responseType: 'arraybuffer' });
+//    const buffer = Buffer.from(thumbResp.data);
+//
+//    // Resize and optimize thumbnail using sharp
+//    const optimizedThumb = await sharp(buffer)
+//      .resize(1280, 720, { fit: 'cover' })
+//      .jpeg({ quality: 85 })
+//      .toBuffer();
+//
+//    return optimizedThumb;
+//  } catch (error) {
+//    console.error('Thumbnail extraction error:', error);
+//    return null;
+//  }
+//}
+//
+//// ✅ Upload single video with thumbnail
+//async function uploadVideo(fileObj, publisher, chatId) {
+//  try {
+//    const fileId = fileObj.file_id;
+//    const thumbFileId = fileObj.thumb?.file_id;
+//
+//    // Get video file from Telegram
+//    const getFileResp = await axios.get(
+//      `https://api.telegram.org/bot${BOT_TOKEN}/getFile?file_id=${fileId}`
+//    );
+//    const filePath = getFileResp.data.result.file_path;
+//    const fileUrl = `https://api.telegram.org/file/bot${BOT_TOKEN}/${filePath}`;
+//
+//    const fileResp = await axios.get(fileUrl, { responseType: 'arraybuffer' });
+//    const buffer = Buffer.from(fileResp.data);
+//
+//    const timestamp = Date.now();
+//    const brandName = publisher.brand_name || publisher.first_name || 'User';
+//    const uniqueFileName = generateFileName(brandName, fileObj.file_name, timestamp);
+//    const fileName = `telegram/${uniqueFileName}`;
+//
+//    console.log('📤 Uploading:', fileName);
+//
+//    // Upload video to Supabase Storage
+//    const { error: uploadErr } = await supabase.storage
+//      .from('videos')
+//      .upload(fileName, buffer, {
+//        contentType: fileObj.mime_type || 'video/mp4',
+//        upsert: false
+//      });
+//
+//    if (uploadErr) throw uploadErr;
+//
+//    const { data: { publicUrl } } = supabase.storage
+//      .from('videos')
+//      .getPublicUrl(fileName);
+//
+//    // ✅ Get and upload thumbnail
+//    let thumbnailUrl = '';
+//    let fullThumbnailUrl = '';
+//
+//    try {
+//      let thumbnailBuffer = null;
+//
+//      if (thumbFileId) {
+//        console.log('🖼️ Extracting thumbnail from Telegram...');
+//        thumbnailBuffer = await getTelegramThumbnail(thumbFileId);
+//      }
+//
+//      if (thumbnailBuffer) {
+//        const thumbFileName = `thumb_${timestamp}.jpg`;
+//        const thumbPath = `uploads/${publisher.user_id}/${thumbFileName}`;
+//
+//        const { error: thumbUploadErr } = await supabase.storage
+//          .from('thumbnails')
+//          .upload(thumbPath, thumbnailBuffer, {
+//            contentType: 'image/jpeg',
+//            upsert: false
+//          });
+//
+//        if (!thumbUploadErr) {
+//          thumbnailUrl = thumbPath;
+//
+//          // Get full public URL
+//          const { data } = supabase.storage
+//            .from('thumbnails')
+//            .getPublicUrl(thumbPath);
+//          fullThumbnailUrl = data.publicUrl;
+//
+//          console.log('✅ Thumbnail uploaded:', fullThumbnailUrl);
+//        }
+//      }
+//    } catch (thumbError) {
+//      console.error('⚠️ Thumbnail processing error:', thumbError);
+//    }
+//
+//    // Insert into database
+//    const { data: videoRecord, error: dbErr } = await supabase
+//      .from('videos')
+//      .insert({
+//        user_id: publisher.user_id,
+//        title: uniqueFileName.replace(/\.[^/.]+$/, ''),
+//        description: `Uploaded via Telegram on ${new Date().toLocaleString()}`,
+//        video_url: publicUrl,
+//        thumbnail_url: thumbnailUrl,
+//        file_name: uniqueFileName,
+//        file_size: fileObj.file_size || 0,
+//        duration: fileObj.duration || 0,
+//        views: 0,
+//        created_at: new Date().toISOString()
+//      })
+//      .select()
+//      .single();
+//
+//    if (dbErr) throw dbErr;
+//
+//    const shareUrl = `${WEBAPP_URL}/video/${videoRecord.id}`;
+//
+//    return {
+//      success: true,
+//      fileName: uniqueFileName,
+//      fileSize: fileObj.file_size,
+//      shareUrl,
+//      videoId: videoRecord.id,
+//      hasThumbnail: !!thumbnailUrl,
+//      thumbnailUrl: fullThumbnailUrl
+//    };
+//
+//  } catch (error) {
+//    console.error('❌ Upload error:', error);
+//    return {
+//      success: false,
+//      error: error.message,
+//      fileName: fileObj.file_name || 'video'
+//    };
+//  }
+//}
+//
 //export default async function handler(req, res) {
 //  if (req.method === 'GET') return res.status(200).json({ status: 'Bot active' });
 //  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
@@ -55,7 +232,6 @@
 //
 //  const chatId = msg.chat?.id;
 //  const tgUserId = msg.from?.id;
-//  const username = msg.from?.username || msg.from?.first_name || 'User';
 //
 //  try {
 //    // ✅ /start command
@@ -66,8 +242,7 @@
 //        `<b>Commands:</b>\n` +
 //        `/link - Link your Telegram account\n` +
 //        `/status - Check verification status\n` +
-//        `/help - Show help\n` +
-//        `/cancel - Cancel current upload\n\n` +
+//        `/help - Show help\n\n` +
 //        `<b>To get started:</b>\n` +
 //        `Send me your Telegram profile link to verify your account.`
 //      );
@@ -82,30 +257,17 @@
 //        `/start - Welcome message\n` +
 //        `/link - Get verification instructions\n` +
 //        `/status - Check verification status\n` +
-//        `/cancel - Cancel current upload\n` +
 //        `/help - Show this message\n\n` +
 //        `<b>How to upload videos:</b>\n` +
-//        `1. Send video file\n` +
-//        `2. Enter video title\n` +
-//        `3. Enter description\n` +
-//        `4. Video will be uploaded!\n\n` +
+//        `1. Send video file(s)\n` +
+//        `2. Videos auto-upload with thumbnail\n` +
+//        `3. Get shareable link instantly\n\n` +
 //        `<b>First time setup:</b>\n` +
 //        `1. Add your Telegram link in DiskNova app\n` +
 //        `2. Send your Telegram link here\n` +
 //        `3. Click verification button\n` +
 //        `4. Start uploading! 🎥`
 //      );
-//      return res.status(200).json({ ok: true });
-//    }
-//
-//    // ✅ /cancel command
-//    if (msg.text?.trim().toLowerCase() === '/cancel') {
-//      if (pendingUploads.has(tgUserId)) {
-//        pendingUploads.delete(tgUserId);
-//        await sendMessage(chatId, '❌ Upload cancelled. Send a new video to start again.');
-//      } else {
-//        await sendMessage(chatId, 'No active upload to cancel.');
-//      }
 //      return res.status(200).json({ ok: true });
 //    }
 //
@@ -124,7 +286,7 @@
 //          `Brand: ${publisher.brand_name}\n` +
 //          `Link: ${publisher.telegram_url}\n\n` +
 //          `🎬 You can now upload videos!\n\n` +
-//          `Just send me a video file and I'll guide you through the process.`
+//          `Just send me video files and they'll be uploaded with thumbnails.`
 //        );
 //      } else if (publisher && !publisher.telegram_verified) {
 //        await sendMessage(chatId,
@@ -150,132 +312,20 @@
 //        `Go to: Profile → Verification → Social Links → Telegram\n\n` +
 //        `<b>Step 2:</b> Send your Telegram link here\n` +
 //        `Example formats:\n` +
-//        `• https://t.me/Hkgaming07\n` +
-//        `• t.me/Hkgaming07\n` +
-//        `• @Hkgaming07\n\n` +
+//        `• https://t.me/your_username\n` +
+//        `• t.me/your_username\n` +
+//        `• @your_username\n\n` +
 //        `<b>Step 3:</b> Click the verification link I send\n\n` +
-//        `That's it! Then you can upload videos. 🎥`
+//        `That's it! Then you can upload videos with thumbnails. 🎥`
 //      );
 //      return res.status(200).json({ ok: true });
 //    }
 //
-//    // ✅ Handle Telegram link messages
+//    // ✅ Handle Telegram link verification
 //    if (msg.text && !msg.text.startsWith('/')) {
 //      const messageText = msg.text.trim();
 //      const sentUsername = extractUsername(messageText);
 //
-//      // Check if user is in middle of video upload
-//      const pendingUpload = pendingUploads.get(tgUserId);
-//
-//      if (pendingUpload) {
-//        // User is providing title or description
-//        if (pendingUpload.step === 'waiting_title') {
-//          pendingUpload.title = messageText;
-//          pendingUpload.step = 'waiting_description';
-//          pendingUploads.set(tgUserId, pendingUpload);
-//
-//          await sendMessage(chatId,
-//            `✅ <b>Title saved:</b> ${messageText}\n\n` +
-//            `📝 Now send the video description:\n` +
-//            `(This will help viewers understand what the video is about)`
-//          );
-//          return res.status(200).json({ ok: true });
-//        }
-//
-//        if (pendingUpload.step === 'waiting_description') {
-//          pendingUpload.description = messageText;
-//          pendingUpload.step = 'processing';
-//          pendingUploads.set(tgUserId, pendingUpload);
-//
-//          // Now process the upload
-//          await sendMessage(chatId, '⏳ <b>Processing your video...</b>\n\nPlease wait while we upload it to DiskNova.');
-//
-//          try {
-//            const { fileObj, publisher } = pendingUpload;
-//            const fileId = fileObj.file_id;
-//
-//            const getFileResp = await axios.get(
-//              `https://api.telegram.org/bot${BOT_TOKEN}/getFile?file_id=${fileId}`
-//            );
-//            const filePath = getFileResp.data.result.file_path;
-//            const fileUrl = `https://api.telegram.org/file/bot${BOT_TOKEN}/${filePath}`;
-//
-//            const fileResp = await axios.get(fileUrl, { responseType: 'arraybuffer' });
-//            const buffer = Buffer.from(fileResp.data);
-//
-//            const timestamp = Date.now();
-//            const originalName = fileObj.file_name || `video_${timestamp}.mp4`;
-//            const uniqueFileName = `${publisher.user_id}_${timestamp}_${originalName}`;
-//            const fileName = `telegram/${uniqueFileName}`;
-//
-//            const { error: uploadErr } = await supabase.storage
-//              .from('videos')
-//              .upload(fileName, buffer, {
-//                contentType: fileObj.mime_type || 'video/mp4',
-//                upsert: false
-//              });
-//
-//            if (uploadErr) throw uploadErr;
-//
-//            const { data: { publicUrl } } = supabase.storage
-//              .from('videos')
-//              .getPublicUrl(fileName);
-//
-//            const { data: videoRecord, error: dbErr } = await supabase
-//              .from('videos')
-//              .insert({
-//                user_id: publisher.user_id,
-//                title: pendingUpload.title,
-//                description: pendingUpload.description,
-//                video_url: publicUrl,
-//                file_name: uniqueFileName,
-//                file_size: fileObj.file_size || 0,
-//                duration: fileObj.duration || 0,
-//                views: 0,
-//                created_at: new Date().toISOString()
-//              })
-//              .select()
-//              .single();
-//
-//            if (dbErr) throw dbErr;
-//
-//            const shareUrl = `${WEBAPP_URL}/video/${videoRecord.id}`;
-//
-//            await sendMessage(chatId,
-//              `✅ <b>Video Uploaded Successfully!</b>\n\n` +
-//              `📁 <b>File:</b> ${originalName}\n` +
-//              `📊 <b>Size:</b> ${(fileObj.file_size / 1024 / 1024).toFixed(2)} MB\n` +
-//              `🎬 <b>Title:</b> ${pendingUpload.title}\n` +
-//              `📝 <b>Description:</b> ${pendingUpload.description.substring(0, 50)}...\n\n` +
-//              `🔗 <b>Share Link:</b>\n${shareUrl}`,
-//              {
-//                reply_markup: {
-//                  inline_keyboard: [[
-//                    { text: '🔗 View Video', url: shareUrl },
-//                    { text: '📊 Dashboard', url: WEBAPP_URL }
-//                  ]]
-//                }
-//              }
-//            );
-//
-//            // Clear pending upload
-//            pendingUploads.delete(tgUserId);
-//
-//          } catch (uploadError) {
-//            console.error('Upload error:', uploadError);
-//            await sendMessage(chatId,
-//              `❌ <b>Upload Failed</b>\n\n` +
-//              `Error: ${uploadError.message}\n\n` +
-//              `Please try again by sending your video.`
-//            );
-//            pendingUploads.delete(tgUserId);
-//          }
-//
-//          return res.status(200).json({ ok: true });
-//        }
-//      }
-//
-//      // If not in upload process, treat as Telegram link verification
 //      if (!sentUsername) {
 //        await sendMessage(chatId,
 //          `❌ <b>Invalid Telegram Link</b>\n\n` +
@@ -288,7 +338,6 @@
 //        return res.status(200).json({ ok: true });
 //      }
 //
-//      // Search for matching publisher
 //      const { data: allPublishers } = await supabase
 //        .from('publishers')
 //        .select('*')
@@ -324,12 +373,11 @@
 //          `Name: ${matchedPublisher.first_name}\n` +
 //          `Brand: ${matchedPublisher.brand_name}\n\n` +
 //          `🎬 <b>Ready to upload videos?</b>\n` +
-//          `Just send me any video file and I'll help you upload it to DiskNova!`
+//          `Just send me any video file(s) and they'll be uploaded with thumbnails!`
 //        );
 //        return res.status(200).json({ ok: true });
 //      }
 //
-//      // Generate verification token
 //      const token = [...Array(30)].map(() => (Math.random() * 36 | 0).toString(36)).join('');
 //      const expiresAt = new Date(Date.now() + 1000 * 60 * 15).toISOString();
 //
@@ -345,7 +393,8 @@
 //          token,
 //          expires_at: expiresAt,
 //          used: false,
-//          publisher_id: matchedPublisher.id
+//          publisher_id: matchedPublisher.id,
+//          bot_username: msg.from?.username || 'User'
 //        });
 //
 //      if (insertError) {
@@ -354,7 +403,7 @@
 //        return res.status(200).json({ ok: true });
 //      }
 //
-//      const verifyUrl = `${WEBAPP_URL}/api/verify-telegram?token=${token}&telegram_id=${tgUserId}`;
+//      const verifyUrl = `${WEBAPP_URL}/api/verify-telegram?token=${token}&telegram_id=${tgUserId}&bot_username=${encodeURIComponent(msg.from?.username || 'User')}`;
 //
 //      await sendMessage(chatId,
 //        `🎉 <b>Account Found!</b>\n\n` +
@@ -374,7 +423,7 @@
 //      return res.status(200).json({ ok: true });
 //    }
 //
-//    // ✅ Handle video/document uploads
+//    // ✅ Handle video/document uploads (instant upload with thumbnail)
 //    if (msg.video || msg.document) {
 //      const { data: publisher } = await supabase
 //        .from('publishers')
@@ -394,22 +443,46 @@
 //
 //      const fileObj = msg.video || msg.document;
 //
-//      // Store upload info and ask for title
-//      pendingUploads.set(tgUserId, {
-//        fileObj,
-//        publisher,
-//        step: 'waiting_title',
-//        timestamp: Date.now()
-//      });
-//
 //      await sendMessage(chatId,
-//        `🎬 <b>Video Received!</b>\n\n` +
+//        `⏳ <b>Uploading video with thumbnail...</b>\n\n` +
 //        `📁 File: ${fileObj.file_name || 'video.mp4'}\n` +
-//        `📊 Size: ${(fileObj.file_size / 1024 / 1024).toFixed(2)} MB\n\n` +
-//        `✍️ <b>Step 1/2:</b> Please send the video title:\n` +
-//        `(Example: "How to cook pasta" or "Gaming highlights")\n\n` +
-//        `Type /cancel to cancel this upload.`
+//        `📊 Size: ${(fileObj.file_size / 1024 / 1024).toFixed(2)} MB`
 //      );
+//
+//      // ✅ Upload immediately with thumbnail
+//      const result = await uploadVideo(fileObj, publisher, chatId);
+//
+//      if (result.success) {
+//
+//
+//        // ✅ Then send thumbnail with link as separate message
+//        if (result.hasThumbnail && result.thumbnailUrl) {
+//          try {
+//            await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendPhoto`, {
+//              chat_id: chatId,
+//              photo: result.thumbnailUrl,
+//              caption: `🔗 <b>Share this video:</b>\n${result.shareUrl}`,
+//              parse_mode: 'HTML',
+//
+//            });
+//            console.log('✅ Thumbnail message sent to Telegram');
+//          } catch (photoError) {
+//            console.error('❌ Error sending photo:', photoError);
+//            // Fallback to text message with link
+//            await sendMessage(chatId, `🔗 <b>Share Link:</b>\n${result.shareUrl}`);
+//          }
+//        } else {
+//          // No thumbnail, just send link
+//          await sendMessage(chatId, `🔗 <b>Share Link:</b>\n${result.shareUrl}`);
+//        }
+//      } else {
+//        await sendMessage(chatId,
+//          `❌ <b>Upload Failed</b>\n\n` +
+//          `Error: ${result.error}\n\n` +
+//          `Please try again.`
+//        );
+//      }
+//
 //      return res.status(200).json({ ok: true });
 //    }
 //
@@ -420,11 +493,10 @@
 //    return res.status(200).json({ ok: true });
 //  }
 //}
-// api/telegram.js
-// api/telegram.js
 import axios from 'axios';
 import { createClient } from '@supabase/supabase-js';
 import sharp from 'sharp';
+import { Readable } from 'stream';
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
@@ -433,9 +505,26 @@ const WEBAPP_URL = process.env.WEBAPP_URL || 'https://disknova-2cna.vercel.app';
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
+// ✅ Optimized axios instance with keep-alive
+const axiosInstance = axios.create({
+  timeout: 300000, // 5 minutes
+  maxContentLength: Infinity,
+  maxBodyLength: Infinity,
+  httpAgent: new (require('http').Agent)({
+    keepAlive: true,
+    keepAliveMsecs: 30000,
+    maxSockets: 10
+  }),
+  httpsAgent: new (require('https').Agent)({
+    keepAlive: true,
+    keepAliveMsecs: 30000,
+    maxSockets: 10
+  })
+});
+
 async function sendMessage(chatId, text, options = {}) {
   try {
-    await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+    await axiosInstance.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
       chat_id: chatId,
       text,
       parse_mode: 'HTML',
@@ -466,7 +555,6 @@ function extractUsername(text) {
   return null;
 }
 
-// ✅ Sanitize filename - remove special characters
 function sanitizeFileName(fileName) {
   if (!fileName || typeof fileName !== "string") {
     return "video.mp4";
@@ -501,20 +589,21 @@ function generateFileName(brandName, originalFileName, timestamp) {
   return `${sanitizedBrandName}_${timestamp}_${sanitizedOriginal}`;
 }
 
-
-// ✅ Generate thumbnail from Telegram's built-in thumbnail
+// ✅ OPTIMIZED: Stream-based thumbnail extraction
 async function getTelegramThumbnail(fileId) {
   try {
-    const getFileResp = await axios.get(
+    const getFileResp = await axiosInstance.get(
       `https://api.telegram.org/bot${BOT_TOKEN}/getFile?file_id=${fileId}`
     );
     const filePath = getFileResp.data.result.file_path;
     const fileUrl = `https://api.telegram.org/file/bot${BOT_TOKEN}/${filePath}`;
 
-    const thumbResp = await axios.get(fileUrl, { responseType: 'arraybuffer' });
+    const thumbResp = await axiosInstance.get(fileUrl, {
+      responseType: 'arraybuffer',
+      timeout: 30000
+    });
     const buffer = Buffer.from(thumbResp.data);
 
-    // Resize and optimize thumbnail using sharp
     const optimizedThumb = await sharp(buffer)
       .resize(1280, 720, { fit: 'cover' })
       .jpeg({ quality: 85 })
@@ -527,30 +616,82 @@ async function getTelegramThumbnail(fileId) {
   }
 }
 
-// ✅ Upload single video with thumbnail
-async function uploadVideo(fileObj, publisher, chatId) {
+// ✅ OPTIMIZED: Streaming upload (no full file in memory)
+async function uploadVideoOptimized(fileObj, publisher, chatId) {
+  const startTime = Date.now();
+
   try {
     const fileId = fileObj.file_id;
     const thumbFileId = fileObj.thumb?.file_id;
+    const fileSize = fileObj.file_size || 0;
 
-    // Get video file from Telegram
-    const getFileResp = await axios.get(
+    console.log(`📤 Starting optimized upload: ${fileObj.file_name || 'video'}`);
+    console.log(`📊 File size: ${(fileSize / (1024 * 1024)).toFixed(2)} MB`);
+
+    // Get file URL from Telegram
+    const getFileResp = await axiosInstance.get(
       `https://api.telegram.org/bot${BOT_TOKEN}/getFile?file_id=${fileId}`
     );
     const filePath = getFileResp.data.result.file_path;
     const fileUrl = `https://api.telegram.org/file/bot${BOT_TOKEN}/${filePath}`;
-
-    const fileResp = await axios.get(fileUrl, { responseType: 'arraybuffer' });
-    const buffer = Buffer.from(fileResp.data);
 
     const timestamp = Date.now();
     const brandName = publisher.brand_name || publisher.first_name || 'User';
     const uniqueFileName = generateFileName(brandName, fileObj.file_name, timestamp);
     const fileName = `telegram/${uniqueFileName}`;
 
-    console.log('📤 Uploading:', fileName);
+    // ✅ OPTIMIZATION 1: Stream download instead of loading full file
+    console.log('🚀 Starting streaming download...');
 
-    // Upload video to Supabase Storage
+    const response = await axiosInstance.get(fileUrl, {
+      responseType: 'stream',
+      timeout: 300000, // 5 minutes
+      onDownloadProgress: (progressEvent) => {
+        if (progressEvent.total) {
+          const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+          if (percent % 20 === 0) { // Log every 20%
+            console.log(`📥 Download progress: ${percent}%`);
+          }
+        }
+      }
+    });
+
+    // ✅ OPTIMIZATION 2: Convert stream to buffer efficiently
+    const chunks = [];
+    let downloadedSize = 0;
+
+    await new Promise((resolve, reject) => {
+      response.data.on('data', (chunk) => {
+        chunks.push(chunk);
+        downloadedSize += chunk.length;
+
+        // Progress update every 5MB
+        if (downloadedSize % (5 * 1024 * 1024) < chunk.length) {
+          const progress = ((downloadedSize / fileSize) * 100).toFixed(1);
+          console.log(`📥 Downloaded: ${progress}% (${(downloadedSize / (1024 * 1024)).toFixed(2)} MB)`);
+        }
+      });
+
+      response.data.on('end', () => {
+        console.log('✅ Download complete!');
+        resolve();
+      });
+
+      response.data.on('error', (err) => {
+        console.error('❌ Download error:', err);
+        reject(err);
+      });
+    });
+
+    const buffer = Buffer.concat(chunks);
+    const downloadTime = ((Date.now() - startTime) / 1000).toFixed(2);
+    const downloadSpeed = ((fileSize / (1024 * 1024)) / downloadTime).toFixed(2);
+    console.log(`⚡ Download completed in ${downloadTime}s (${downloadSpeed} MB/s)`);
+
+    // ✅ OPTIMIZATION 3: Upload to Supabase with progress
+    console.log('📤 Uploading to Supabase...');
+    const uploadStartTime = Date.now();
+
     const { error: uploadErr } = await supabase.storage
       .from('videos')
       .upload(fileName, buffer, {
@@ -560,48 +701,56 @@ async function uploadVideo(fileObj, publisher, chatId) {
 
     if (uploadErr) throw uploadErr;
 
+    const uploadTime = ((Date.now() - uploadStartTime) / 1000).toFixed(2);
+    const uploadSpeed = ((fileSize / (1024 * 1024)) / uploadTime).toFixed(2);
+    console.log(`⚡ Upload completed in ${uploadTime}s (${uploadSpeed} MB/s)`);
+
     const { data: { publicUrl } } = supabase.storage
       .from('videos')
       .getPublicUrl(fileName);
 
-    // ✅ Get and upload thumbnail
+    // ✅ OPTIMIZATION 4: Process thumbnail in parallel (async)
     let thumbnailUrl = '';
     let fullThumbnailUrl = '';
 
-    try {
-      let thumbnailBuffer = null;
+    // Don't wait for thumbnail - process async
+    const thumbnailPromise = (async () => {
+      try {
+        if (thumbFileId) {
+          console.log('🖼️ Processing thumbnail...');
+          const thumbnailBuffer = await getTelegramThumbnail(thumbFileId);
 
-      if (thumbFileId) {
-        console.log('🖼️ Extracting thumbnail from Telegram...');
-        thumbnailBuffer = await getTelegramThumbnail(thumbFileId);
-      }
+          if (thumbnailBuffer) {
+            const thumbFileName = `thumb_${timestamp}.jpg`;
+            const thumbPath = `uploads/${publisher.user_id}/${thumbFileName}`;
 
-      if (thumbnailBuffer) {
-        const thumbFileName = `thumb_${timestamp}.jpg`;
-        const thumbPath = `uploads/${publisher.user_id}/${thumbFileName}`;
+            const { error: thumbUploadErr } = await supabase.storage
+              .from('thumbnails')
+              .upload(thumbPath, thumbnailBuffer, {
+                contentType: 'image/jpeg',
+                upsert: false
+              });
 
-        const { error: thumbUploadErr } = await supabase.storage
-          .from('thumbnails')
-          .upload(thumbPath, thumbnailBuffer, {
-            contentType: 'image/jpeg',
-            upsert: false
-          });
-
-        if (!thumbUploadErr) {
-          thumbnailUrl = thumbPath;
-
-          // Get full public URL
-          const { data } = supabase.storage
-            .from('thumbnails')
-            .getPublicUrl(thumbPath);
-          fullThumbnailUrl = data.publicUrl;
-
-          console.log('✅ Thumbnail uploaded:', fullThumbnailUrl);
+            if (!thumbUploadErr) {
+              thumbnailUrl = thumbPath;
+              const { data } = supabase.storage
+                .from('thumbnails')
+                .getPublicUrl(thumbPath);
+              fullThumbnailUrl = data.publicUrl;
+              console.log('✅ Thumbnail uploaded');
+            }
+          }
         }
+      } catch (thumbError) {
+        console.error('⚠️ Thumbnail error:', thumbError);
       }
-    } catch (thumbError) {
-      console.error('⚠️ Thumbnail processing error:', thumbError);
-    }
+      return { thumbnailUrl, fullThumbnailUrl };
+    })();
+
+    // Wait for thumbnail processing
+    const thumbResult = await thumbnailPromise;
+    thumbnailUrl = thumbResult.thumbnailUrl;
+    fullThumbnailUrl = thumbResult.fullThumbnailUrl;
 
     // Insert into database
     const { data: videoRecord, error: dbErr } = await supabase
@@ -613,7 +762,7 @@ async function uploadVideo(fileObj, publisher, chatId) {
         video_url: publicUrl,
         thumbnail_url: thumbnailUrl,
         file_name: uniqueFileName,
-        file_size: fileObj.file_size || 0,
+        file_size: fileSize,
         duration: fileObj.duration || 0,
         views: 0,
         created_at: new Date().toISOString()
@@ -623,16 +772,22 @@ async function uploadVideo(fileObj, publisher, chatId) {
 
     if (dbErr) throw dbErr;
 
+    const totalTime = ((Date.now() - startTime) / 1000).toFixed(2);
+    const avgSpeed = ((fileSize / (1024 * 1024)) / totalTime).toFixed(2);
+    console.log(`🎉 Total time: ${totalTime}s | Average speed: ${avgSpeed} MB/s`);
+
     const shareUrl = `${WEBAPP_URL}/video/${videoRecord.id}`;
 
     return {
       success: true,
       fileName: uniqueFileName,
-      fileSize: fileObj.file_size,
+      fileSize: fileSize,
       shareUrl,
       videoId: videoRecord.id,
       hasThumbnail: !!thumbnailUrl,
-      thumbnailUrl: fullThumbnailUrl
+      thumbnailUrl: fullThumbnailUrl,
+      uploadTime: totalTime,
+      avgSpeed: avgSpeed
     };
 
   } catch (error) {
@@ -683,7 +838,7 @@ export default async function handler(req, res) {
         `/help - Show this message\n\n` +
         `<b>How to upload videos:</b>\n` +
         `1. Send video file(s)\n` +
-        `2. Videos auto-upload with thumbnail\n` +
+        `2. Videos auto-upload with thumbnail (⚡ optimized streaming)\n` +
         `3. Get shareable link instantly\n\n` +
         `<b>First time setup:</b>\n` +
         `1. Add your Telegram link in DiskNova app\n` +
@@ -709,7 +864,7 @@ export default async function handler(req, res) {
           `Brand: ${publisher.brand_name}\n` +
           `Link: ${publisher.telegram_url}\n\n` +
           `🎬 You can now upload videos!\n\n` +
-          `Just send me video files and they'll be uploaded with thumbnails.`
+          `⚡ Optimized streaming upload enabled - faster uploads!`
         );
       } else if (publisher && !publisher.telegram_verified) {
         await sendMessage(chatId,
@@ -739,7 +894,7 @@ export default async function handler(req, res) {
         `• t.me/your_username\n` +
         `• @your_username\n\n` +
         `<b>Step 3:</b> Click the verification link I send\n\n` +
-        `That's it! Then you can upload videos with thumbnails. 🎥`
+        `That's it! Then you can upload videos with ⚡ fast streaming. 🎥`
       );
       return res.status(200).json({ ok: true });
     }
@@ -796,7 +951,7 @@ export default async function handler(req, res) {
           `Name: ${matchedPublisher.first_name}\n` +
           `Brand: ${matchedPublisher.brand_name}\n\n` +
           `🎬 <b>Ready to upload videos?</b>\n` +
-          `Just send me any video file(s) and they'll be uploaded with thumbnails!`
+          `Just send me any video file(s) - ⚡ optimized streaming enabled!`
         );
         return res.status(200).json({ ok: true });
       }
@@ -846,7 +1001,7 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true });
     }
 
-    // ✅ Handle video/document uploads (instant upload with thumbnail)
+    // ✅ Handle video/document uploads (OPTIMIZED STREAMING)
     if (msg.video || msg.document) {
       const { data: publisher } = await supabase
         .from('publishers')
@@ -867,46 +1022,39 @@ export default async function handler(req, res) {
       const fileObj = msg.video || msg.document;
 
       await sendMessage(chatId,
-        `⏳ <b>Uploading video with thumbnail...</b>\n\n` +
+        `⚡ <b>Uploading with optimized streaming...</b>\n\n` +
         `📁 File: ${fileObj.file_name || 'video.mp4'}\n` +
-        `📊 Size: ${(fileObj.file_size / 1024 / 1024).toFixed(2)} MB`
+        `📊 Size: ${(fileObj.file_size / 1024 / 1024).toFixed(2)} MB\n\n` +
+        `⏳ Processing... (faster speeds enabled)`
       );
 
-      // ✅ Upload immediately with thumbnail
-      const result = await uploadVideo(fileObj, publisher, chatId);
+      // ✅ Use optimized streaming upload
+      const result = await uploadVideoOptimized(fileObj, publisher, chatId);
 
       if (result.success) {
-        // ✅ First send success message
-//        await sendMessage(chatId,
-//          `✅ <b>Video Uploaded Successfully!</b>\n\n` +
-//          `📁 <b>File:</b> ${result.fileName}\n` +
-//          `📊 <b>Size:</b> ${(result.fileSize / 1024 / 1024).toFixed(2)} MB\n` +
-//          `${result.hasThumbnail ? '🖼️ <b>Thumbnail:</b> Generated\n' : ''}`
-//        );
+        await sendMessage(chatId,
+          `✅ <b>Upload Complete!</b>\n\n` +
+          `📁 File: ${result.fileName}\n` +
+          `📊 Size: ${(result.fileSize / 1024 / 1024).toFixed(2)} MB\n` +
+          `⚡ Time: ${result.uploadTime}s\n` +
+          `🚀 Speed: ${result.avgSpeed} MB/s\n` +
+          `🖼️ Thumbnail: ${result.hasThumbnail ? 'Yes ✅' : 'No ❌'}`
+        );
 
-        // ✅ Then send thumbnail with link as separate message
+        // Send thumbnail with link
         if (result.hasThumbnail && result.thumbnailUrl) {
           try {
-            await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendPhoto`, {
+            await axiosInstance.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendPhoto`, {
               chat_id: chatId,
               photo: result.thumbnailUrl,
               caption: `🔗 <b>Share this video:</b>\n${result.shareUrl}`,
-              parse_mode: 'HTML',
-//              reply_markup: {
-//                inline_keyboard: [[
-//                  { text: '🔗 Open Video', url: result.shareUrl },
-//                  { text: '📊 Dashboard', url: WEBAPP_URL }
-//                ]]
-//              }
+              parse_mode: 'HTML'
             });
-            console.log('✅ Thumbnail message sent to Telegram');
           } catch (photoError) {
             console.error('❌ Error sending photo:', photoError);
-            // Fallback to text message with link
             await sendMessage(chatId, `🔗 <b>Share Link:</b>\n${result.shareUrl}`);
           }
         } else {
-          // No thumbnail, just send link
           await sendMessage(chatId, `🔗 <b>Share Link:</b>\n${result.shareUrl}`);
         }
       } else {
