@@ -771,8 +771,8 @@ class _BillingScreenState extends State<BillingScreen> with SingleTickerProvider
   Future<void> _createWithdrawalRequest() async {
     final available = _revenueData['available'] ?? 0;
 
-    if (available < 10) {
-      _showErrorSnackBar('Minimum balance of \$10 required for withdrawal');
+    if (available < 5) {
+      _showErrorSnackBar('Minimum balance of \$5 required for withdrawal');
       return;
     }
 
@@ -832,7 +832,7 @@ class _BillingScreenState extends State<BillingScreen> with SingleTickerProvider
                   SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'Minimum payout: \$10\nProcessing time: 3-5 business days',
+                      'Minimum payout: \$5\nProcessing time: 3-5 business days',
                       style: TextStyle(fontSize: 12, color: Color(0xFF92400E)),
                     ),
                   ),
@@ -1274,7 +1274,7 @@ class _BillingScreenState extends State<BillingScreen> with SingleTickerProvider
           ),
           const SizedBox(height: 24),
           const Text(
-            'International Payment System. Bank or UPI or SWIFT or AirTM. Instant Payments. Minimum Payout: \$10. Live Dollar Exchange Rates.',
+            'International Payment System. Bank or UPI or SWIFT or AirTM. Instant Payments. Minimum Payout: \$5. Live Dollar Exchange Rates.',
             textAlign: TextAlign.center,
             style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
           ),
