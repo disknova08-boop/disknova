@@ -869,7 +869,7 @@ class _FileManagerScreenState extends State<FileManagerScreen> {
         .from('thumbnails')
         .getPublicUrl(video['thumbnail_url'])
         : null;
-
+print(thumbnailUrl);
     return Padding(
       padding: const EdgeInsets.all(20),
       child: Row(
