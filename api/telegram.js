@@ -877,12 +877,12 @@ export default async function handler(req, res) {
 
       if (result.success) {
         // ✅ First send success message
-        await sendMessage(chatId,
-          `✅ <b>Video Uploaded Successfully!</b>\n\n` +
-          `📁 <b>File:</b> ${result.fileName}\n` +
-          `📊 <b>Size:</b> ${(result.fileSize / 1024 / 1024).toFixed(2)} MB\n` +
-          `${result.hasThumbnail ? '🖼️ <b>Thumbnail:</b> Generated\n' : ''}`
-        );
+//        await sendMessage(chatId,
+//          `✅ <b>Video Uploaded Successfully!</b>\n\n` +
+//          `📁 <b>File:</b> ${result.fileName}\n` +
+//          `📊 <b>Size:</b> ${(result.fileSize / 1024 / 1024).toFixed(2)} MB\n` +
+//          `${result.hasThumbnail ? '🖼️ <b>Thumbnail:</b> Generated\n' : ''}`
+//        );
 
         // ✅ Then send thumbnail with link as separate message
         if (result.hasThumbnail && result.thumbnailUrl) {
@@ -892,12 +892,12 @@ export default async function handler(req, res) {
               photo: result.thumbnailUrl,
               caption: `🔗 <b>Share this video:</b>\n${result.shareUrl}`,
               parse_mode: 'HTML',
-              reply_markup: {
-                inline_keyboard: [[
-                  { text: '🔗 Open Video', url: result.shareUrl },
-                  { text: '📊 Dashboard', url: WEBAPP_URL }
-                ]]
-              }
+//              reply_markup: {
+//                inline_keyboard: [[
+//                  { text: '🔗 Open Video', url: result.shareUrl },
+//                  { text: '📊 Dashboard', url: WEBAPP_URL }
+//                ]]
+//              }
             });
             console.log('✅ Thumbnail message sent to Telegram');
           } catch (photoError) {
