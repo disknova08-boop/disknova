@@ -497,6 +497,8 @@ import axios from 'axios';
 import { createClient } from '@supabase/supabase-js';
 import sharp from 'sharp';
 import { Readable } from 'stream';
+import http from 'http';
+import https from 'https';
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
@@ -510,12 +512,12 @@ const axiosInstance = axios.create({
   timeout: 300000, // 5 minutes
   maxContentLength: Infinity,
   maxBodyLength: Infinity,
-  httpAgent: new (require('http').Agent)({
+  httpAgent: new http.Agent({
     keepAlive: true,
     keepAliveMsecs: 30000,
     maxSockets: 10
   }),
-  httpsAgent: new (require('https').Agent)({
+  httpsAgent: new https.Agent({
     keepAlive: true,
     keepAliveMsecs: 30000,
     maxSockets: 10
