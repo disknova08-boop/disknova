@@ -51,13 +51,74 @@ export default async (req, res) => {
             position: relative;
             width: 100%;
             background: #000;
+            aspect-ratio: 16 / 9;
+            cursor: pointer;
         }
 
-        video {
+        /* ✅ Thumbnail display */
+        .thumbnail-wrapper {
+            position: relative;
             width: 100%;
-            height: auto;
-            display: block;
-            max-height: 70vh;
+            height: 100%;
+            background-size: cover;
+            background-position: center;
+            background-color: #000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .thumbnail-wrapper.no-thumbnail {
+            background: linear-gradient(135deg, #2563eb 0%, #1e40af 100%);
+        }
+
+        .play-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0, 0, 0, 0.3);
+            transition: all 0.3s;
+        }
+
+        .video-container:hover .play-overlay {
+            background: rgba(0, 0, 0, 0.5);
+        }
+
+        .play-button {
+            width: 90px;
+            height: 90px;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+            transition: all 0.3s;
+        }
+
+        .video-container:hover .play-button {
+            transform: scale(1.1);
+            background: white;
+            box-shadow: 0 15px 50px rgba(0, 0, 0, 0.6);
+        }
+
+        .play-icon {
+            width: 0;
+            height: 0;
+            border-left: 28px solid #667eea;
+            border-top: 16px solid transparent;
+            border-bottom: 16px solid transparent;
+            margin-left: 8px;
+        }
+
+        .no-thumbnail-icon {
+            font-size: 80px;
+            opacity: 0.3;
         }
 
         .loading {
@@ -189,37 +250,6 @@ export default async (req, res) => {
             font-style: italic;
         }
 
-        .video-overlay {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: rgba(0, 0, 0, 0.7);
-            cursor: pointer;
-            z-index: 5;
-        }
-
-        .play-icon {
-            width: 80px;
-            height: 80px;
-            background: rgba(255, 255, 255, 0.9);
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 40px;
-            transition: all 0.3s;
-        }
-
-        .play-icon:hover {
-            transform: scale(1.1);
-            background: white;
-        }
-
         .error-container {
             text-align: center;
             padding: 60px 30px;
@@ -287,6 +317,18 @@ export default async (req, res) => {
                 width: 100%;
                 justify-content: center;
             }
+
+            .play-button {
+                width: 70px;
+                height: 70px;
+            }
+
+            .play-icon {
+                border-left: 22px solid #667eea;
+                border-top: 13px solid transparent;
+                border-bottom: 13px solid transparent;
+                margin-left: 6px;
+            }
         }
     </style>
 </head>
@@ -306,16 +348,16 @@ export default async (req, res) => {
     const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV2YWpxdHF5ZHhtdGV6Z2VhaWVmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE5MzI3NDQsImV4cCI6MjA3NzUwODc0NH0.WzRv37Tm7PHH7D1bxE4QnO1lmH2UV2IQ_TqgF1QYUM8';
     const VIDEO_ID = '${videoId}';
 
-    // ✅ Google Play Store URL (change this to your actual app URL when ready)
+    // ✅ Google Play Store URL
     const GOOGLE_PLAY_URL = 'https://play.google.com/store/apps/details?id=com.disknova.app';
 
     const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
     function redirectToPlayStore() {
         console.log('🔗 Redirecting to Google Play Store:', GOOGLE_PLAY_URL);
-        alert('Redirecting to Google Play Store...\\n' + GOOGLE_PLAY_URL);
         // Uncomment when you have actual Play Store URL:
-         window.location.href = GOOGLE_PLAY_URL;
+        // window.location.href = GOOGLE_PLAY_URL;
+        alert('📱 Download DiskNova App from Play Store to watch this video!\\n\\n' + GOOGLE_PLAY_URL);
     }
 
     async function loadVideo() {
@@ -329,7 +371,7 @@ export default async (req, res) => {
                 throw new Error('No video ID provided');
             }
 
-            // ✅ First, get the video data
+            // ✅ Get video data
             const { data: video, error: videoError } = await supabase
                 .from('videos')
                 .select('*')
@@ -347,7 +389,7 @@ export default async (req, res) => {
                 throw new Error('Video not found in database');
             }
 
-            // ✅ Then, separately get publisher info
+            // ✅ Get publisher info
             let publisher = null;
             if (video.user_id) {
                 const { data: publisherData, error: publisherError } = await supabase
@@ -363,6 +405,19 @@ export default async (req, res) => {
             }
 
             console.log('✅ Video loaded successfully:', video.title);
+
+            // ✅ Get thumbnail URL if available
+            let thumbnailUrl = '';
+            let thumbnailStyle = '';
+
+            if (video.thumbnail_url && video.thumbnail_url.trim()) {
+                const { data } = supabase.storage
+                    .from('thumbnails')
+                    .getPublicUrl(video.thumbnail_url);
+                thumbnailUrl = data.publicUrl;
+                thumbnailStyle = \`background-image: url('\${thumbnailUrl}');\`;
+                console.log('🖼️ Thumbnail URL:', thumbnailUrl);
+            }
 
             // ✅ Increment view count
             try {
@@ -384,15 +439,16 @@ export default async (req, res) => {
                 \`\${publisher.first_name || ''} \${publisher.last_name || ''}\`.trim() :
                 'Unknown Publisher';
 
-            // ✅ Display video player with overlay
+            // ✅ Display thumbnail with play button (NO VIDEO PLAYER)
             app.innerHTML = \`
-                <div class="video-container">
-                    <video id="videoPlayer" controls controlsList="nodownload">
-                        <source src="\${video.video_url}" type="video/mp4">
-                        Your browser does not support the video tag.
-                    </video>
-                    <div class="video-overlay" id="videoOverlay" onclick="redirectToPlayStore()">
-                        <div class="play-icon">▶️</div>
+                <div class="video-container" onclick="redirectToPlayStore()">
+                    <div class="thumbnail-wrapper \${!thumbnailUrl ? 'no-thumbnail' : ''}" style="\${thumbnailStyle}">
+                        \${!thumbnailUrl ? '<div class="no-thumbnail-icon">🎬</div>' : ''}
+                        <div class="play-overlay">
+                            <div class="play-button">
+                                <div class="play-icon"></div>
+                            </div>
+                        </div>
                     </div>
                 </div>
                 <div class="info-section">
@@ -435,7 +491,8 @@ export default async (req, res) => {
                     </div>
 
                     <p class="app-notice">
-                        *You can view the file in Android/iOS App. Web is not supported.*
+                        📱 <strong>Download DiskNova App to watch this video!</strong><br>
+                        Web playback is not supported. Click the thumbnail or buttons above.
                     </p>
 
                     \${publisher ? \`
@@ -452,13 +509,6 @@ export default async (req, res) => {
                     \` : ''}
                 </div>
             \`;
-
-            // Add click listener to video itself
-            const videoPlayer = document.getElementById('videoPlayer');
-            videoPlayer.addEventListener('click', function(e) {
-                e.preventDefault();
-                redirectToPlayStore();
-            });
 
         } catch (error) {
             console.error('💥 Error loading video:', error);
@@ -508,28 +558,6 @@ export default async (req, res) => {
             month: 'short',
             day: 'numeric'
         });
-    }
-
-    async function downloadVideo(url, filename) {
-        try {
-            console.log('📥 Starting download...');
-            const response = await fetch(url);
-            const blob = await response.blob();
-            const blobUrl = window.URL.createObjectURL(blob);
-
-            const a = document.createElement('a');
-            a.href = blobUrl;
-            a.download = (filename || 'video') + '.mp4';
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            window.URL.revokeObjectURL(blobUrl);
-
-            alert('Download started! ✅');
-        } catch (error) {
-            console.error('Download error:', error);
-            alert('Download failed. Please try again.');
-        }
     }
 
     function shareVideo() {
