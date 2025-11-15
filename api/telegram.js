@@ -468,6 +468,10 @@ function extractUsername(text) {
 
 // ✅ Sanitize filename - remove special characters
 function sanitizeFileName(fileName) {
+  if (!fileName || typeof fileName !== "string") {
+    return "video.mp4";
+  }
+
   const parts = fileName.split('.');
   const extension = parts.length > 1 ? parts.pop() : 'mp4';
   const nameWithoutExt = parts.join('.');
@@ -487,13 +491,16 @@ function sanitizeFileName(fileName) {
 }
 
 function generateFileName(brandName, originalFileName, timestamp) {
+  const safeOriginal = originalFileName || `video_${timestamp}.mp4`;
+
   const sanitizedBrandName = brandName
     .replace(/[^a-zA-Z0-9]/g, '_')
     .substring(0, 30);
 
-  const sanitizedOriginal = sanitizeFileName(originalFileName);
+  const sanitizedOriginal = sanitizeFileName(safeOriginal);
   return `${sanitizedBrandName}_${timestamp}_${sanitizedOriginal}`;
 }
+
 
 // ✅ Generate thumbnail from Telegram's built-in thumbnail
 async function getTelegramThumbnail(fileId) {
